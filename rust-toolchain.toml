@@ -1,0 +1,5 @@
+[toolchain]
+# Donor workspace had no pin and tracked stable; pin what builds today so a
+# public clone doesn't chase lint drift (a donor commit records breakage on
+# a stable bump).
+channel = "1.96.1"

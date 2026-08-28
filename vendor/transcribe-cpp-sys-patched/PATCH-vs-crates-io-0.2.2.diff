@@ -1,0 +1,82 @@
+# PATCH-vs-crates-io-0.2.2.diff
+#
+# Provenance: transcribe-cpp-sys 0.2.2 (crates.io) + one patch to
+# src/arch/whisper/model.cpp — adaptive short-form encoder window.
+# Upstream candidate for handy-computer/transcribe.cpp; drop this vendor
+# tree once upstream carries it.
+#
+# Invariants (measured, do not relax — see BRIEF.md §4.2):
+#   1. Short-form ONLY. Shrinking the window globally re-chunks long-form
+#      and destroys it: long-form WER 4.31% -> 85.34% at a 20s window.
+#   2. Window floor 20 seconds (set via env by the caller; code default 10).
+#      At 16s mixed ru-en speech degrades 24.31% -> 40.31% WER.
+#   3. Opt-in via env, set by voice-engine enable_adaptive_window():
+#      TRANSCRIBE_ADAPTIVE_WINDOW=1, TRANSCRIBE_WINDOW_MIN_SECS=20,
+#      TRANSCRIBE_WINDOW_MARGIN_SECS=2.
+#
+# Effect: 3.0x faster short-form encode (fixed ~275ms encode cost scales
+# with clip length instead), no metric regression at the settings above.
+#
+# Regenerate: download transcribe-cpp-sys-0.2.2.crate from crates.io, then
+#   diff -ruN -x .cargo-ok -x .cargo_vcs_info.json -x Cargo.toml.orig \
+#     transcribe-cpp-sys-0.2.2 vendor/transcribe-cpp-sys-patched
+diff -ruN -x .cargo-ok -x .cargo_vcs_info.json -x Cargo.toml.orig /tmp/tcs-ref/transcribe-cpp-sys-0.2.2/src/arch/whisper/model.cpp /Users/random1st/src/diana-voice/vendor/transcribe-cpp-sys-patched/src/arch/whisper/model.cpp
+--- /tmp/tcs-ref/transcribe-cpp-sys-0.2.2/src/arch/whisper/model.cpp	2006-07-24 02:21:28.000000000 +0100
++++ /Users/random1st/src/diana-voice/vendor/transcribe-cpp-sys-patched/src/arch/whisper/model.cpp	2026-08-28 19:57:57.427186417 +0100
+@@ -1256,13 +1256,53 @@
+     //        same — only short-form pads to 30s). The seek loop slices
+     //        3000-frame windows and zero-pads the trailing short window.
+     const int  n_mels                 = cm->hparams.enc_num_mel_bins;
+-    const int  n_mel_frames_per_chunk = cm->hparams.fe_nb_max_frames > 0 ? cm->hparams.fe_nb_max_frames : 3000;
+-    const int  n_samples_per_chunk    = cm->hparams.fe_n_samples > 0 ? cm->hparams.fe_n_samples : 480000;
++    int        n_mel_frames_per_chunk = cm->hparams.fe_nb_max_frames > 0 ? cm->hparams.fe_nb_max_frames : 3000;
++    int        n_samples_per_chunk    = cm->hparams.fe_n_samples > 0 ? cm->hparams.fe_n_samples : 480000;
+     // Short-form = fits a single 30s window. Controls PCM padding only (HF's
+     // processor pads short-form PCM to 30s before the mel, long-form does
+     // not); the seek loop below is unified across both forms, matching HF's
+     // generate(), which since 5.x runs one seek loop for every input length.
+-    const bool is_short_form          = (n_samples <= n_samples_per_chunk);
++    bool is_short_form          = (n_samples <= n_samples_per_chunk);
++
++    // AUTORESEARCH PATCH — adaptive short-form encoder window.
++    //
++    // Whisper encodes a fixed 30 s window, so a 4 s utterance pays for 26 s of
++    // silence: measured encode cost is a flat ~275 ms at any clip length. The
++    // encoder graph is rebuilt per window (run_whisper_encoder_on_window takes
++    // n_mel_frames and reallocates on T_enc change), so the window can be sized
++    // to the audio instead.
++    //
++    // Only short-form is touched. Shrinking the window globally also re-chunks
++    // long-form, and that was measured to destroy it (long-form WER 4.31% ->
++    // 85.34% at a 20 s window) — the seek/stitch path assumes the native size.
++    //
++    // Positional embeddings were trained at 30 s, so this is a real accuracy
++    // trade; TRANSCRIBE_WINDOW_MARGIN_SECS and TRANSCRIBE_WINDOW_MIN_SECS exist
++    // so the eval harness can price it.
++    if (is_short_form && transcribe::env::flag("TRANSCRIBE_ADAPTIVE_WINDOW")) {
++        int margin = 2;
++        if (const char * mv = transcribe::env::str("TRANSCRIBE_WINDOW_MARGIN_SECS")) {
++            const int parsed = std::atoi(mv);
++            if (parsed >= 0 && parsed <= 30) { margin = parsed; }
++        }
++        int min_secs = 10;
++        if (const char * mv = transcribe::env::str("TRANSCRIBE_WINDOW_MIN_SECS")) {
++            const int parsed = std::atoi(mv);
++            if (parsed > 0 && parsed <= 30) { min_secs = parsed; }
++        }
++        const int audio_secs  = (n_samples + 16000 - 1) / 16000;
++        const int native_secs = n_samples_per_chunk / 16000;
++        int       want_secs   = audio_secs + margin;
++        if (want_secs < min_secs) { want_secs = min_secs; }
++        if (want_secs < native_secs) {
++            const int frames = want_secs * 100;   // 10 ms hop
++            if (frames % 2 == 0 && frames / 2 <= cm->hparams.enc_max_source_positions) {
++                n_mel_frames_per_chunk = frames;
++                n_samples_per_chunk    = want_secs * 16000;
++                is_short_form          = (n_samples <= n_samples_per_chunk);
++            }
++        }
++    }
+ 
+     const int64_t t_mel_start      = ggml_time_us();
+     int           total_mel_frames = 0;

@@ -1,0 +1,10 @@
+[package]
+name = "voice-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# M0 stub: pins the transcribe-cpp dependency so the [patch.crates-io]
+# override is resolvable from a fresh clone. Real engine lands in M1.
+[dependencies]
+transcribe-cpp = { version = "0.2.0", default-features = false, features = ["metal"] }

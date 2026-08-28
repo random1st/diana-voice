@@ -1,0 +1,6 @@
+/target
+Cargo.lock.orig
+.DS_Store
+/swift/DianaVoice/.build
+/build
+*.dmg
