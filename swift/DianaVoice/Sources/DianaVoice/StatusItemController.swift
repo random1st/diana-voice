@@ -12,8 +12,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private let statusItem: NSStatusItem
 
-    private var statusLineItem: NSMenuItem!
+    private var sttLineItem: NSMenuItem!
+    private var ttsLineItem: NSMenuItem!
     private var micItem: NSMenuItem!
+    private var pttMenuItems: [NSMenuItem] = []
+    private var pttBinding: PttBinding = PttBinding.load()
 
     /// User-visible feedback line (wired to the avatar speech bubble by
     /// AppDelegate). UNUserNotificationCenter is NOT an option here: it
@@ -21,6 +24,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// executable run outside an .app bundle — crashed the whole app on the
     /// first tray click during dev-run.
     var onFeedback: ((String) -> Void)?
+
+    /// Fired when the user picks a different push-to-talk binding from the
+    /// tray submenu; AppDelegate wires this to `PushToTalkController.setBinding`.
+    var onPttBindingChange: ((PttBinding) -> Void)?
 
     override init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -40,13 +47,35 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.delegate = self
         statusItem.menu = menu
 
-        statusLineItem = NSMenuItem(title: Self.engineStatusLine(), action: nil, keyEquivalent: "")
-        statusLineItem.isEnabled = false
-        menu.addItem(statusLineItem)
+        // Two separate lines — "Whisper Turbo (STT) · Qwen3-TTS (TTS) —
+        // on-device" got truncated in the menu bar's fixed-width menu column
+        // and Qwen was never visible.
+        sttLineItem = NSMenuItem(title: Self.sttStatusLine(), action: nil, keyEquivalent: "")
+        sttLineItem.isEnabled = false
+        menu.addItem(sttLineItem)
+
+        ttsLineItem = NSMenuItem(title: Self.ttsStatusLine(), action: nil, keyEquivalent: "")
+        ttsLineItem.isEnabled = false
+        menu.addItem(ttsLineItem)
 
         micItem = NSMenuItem(title: Self.micStatusLine(), action: nil, keyEquivalent: "")
         micItem.isEnabled = false
         menu.addItem(micItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let pttItem = NSMenuItem(title: "Push to Talk", action: nil, keyEquivalent: "")
+        let pttSubmenu = NSMenu()
+        for binding in PttBinding.allCases {
+            let item = NSMenuItem(title: binding.displayName, action: #selector(selectPttBinding(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = binding.rawValue
+            pttSubmenu.addItem(item)
+            pttMenuItems.append(item)
+        }
+        refreshPttCheckmarks()
+        pttItem.submenu = pttSubmenu
+        menu.addItem(pttItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -92,17 +121,23 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - NSMenuDelegate
 
     func menuNeedsUpdate(_ menu: NSMenu) {
-        // Both lines can change between opens (device swap, engine still
+        // These lines can change between opens (device swap, engine still
         // warming up) — refresh synchronously so the menu is current the
         // instant it's shown.
-        statusLineItem.title = Self.engineStatusLine()
+        sttLineItem.title = Self.sttStatusLine()
+        ttsLineItem.title = Self.ttsStatusLine()
         micItem.title = Self.micStatusLine()
+        refreshPttCheckmarks()
     }
 
     // MARK: - Status text
 
-    private static func engineStatusLine() -> String {
-        "Whisper Turbo (STT) · Qwen3-TTS (TTS) — on-device"
+    private static func sttStatusLine() -> String {
+        "STT: Whisper Large v3 Turbo"
+    }
+
+    private static func ttsStatusLine() -> String {
+        "TTS: Qwen3-TTS (voice clone)"
     }
 
     private static func micStatusLine() -> String {
@@ -141,6 +176,24 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 ? "Claude Code configured — restart your session"
                 : "claude CLI not found — use Copy MCP Config instead"
             DispatchQueue.main.async { feedback?(message) }
+        }
+    }
+
+    // MARK: - Push to Talk
+
+    @objc private func selectPttBinding(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let binding = PttBinding(rawValue: raw) else { return }
+        pttBinding = binding
+        binding.save()
+        refreshPttCheckmarks()
+        onPttBindingChange?(binding)
+        onFeedback?("Push to Talk: \(binding.displayName)")
+    }
+
+    private func refreshPttCheckmarks() {
+        for item in pttMenuItems {
+            let raw = item.representedObject as? String
+            item.state = (raw == pttBinding.rawValue) ? .on : .off
         }
     }
 

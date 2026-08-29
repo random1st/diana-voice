@@ -239,3 +239,12 @@ auto_noted: false
 # M4.5 (PTT):
 #   swift/DianaVoice/Sources/DianaVoice/PushToTalk.swift
 #   swift/DianaVoice/Tests/DianaVoiceTests/PushToTalkTests.swift
+# M7-M9:
+#   scripts/package-app.sh
+#   scripts/notarize.sh
+#   scripts/make-dmg.sh
+#   .github/workflows/ci.yml
+#   THIRD-PARTY-NOTICES.md
+#   Casks/diana-voice.rb
+#   swift/DianaVoice/Sources/DianaVoice/Onboarding.swift
+#   swift/DianaVoice/packaging/icon.icns

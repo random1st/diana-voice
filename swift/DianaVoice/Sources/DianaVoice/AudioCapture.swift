@@ -156,9 +156,28 @@ final class AudioCapture: @unchecked Sendable {
     /// (empty Data if nothing/no device). Idempotent. Clears the streaming
     /// handler — a finished session must never receive frames from the next one.
     func stop() -> Data {
+        Self.encodeWav16kMono(teardownAndCollect())
+    }
+
+    /// Same teardown as `stop()`, but returns the raw 16 kHz mono Float32
+    /// samples instead of an encoded WAV — the push-to-talk path hands these
+    /// straight to `transcribeSamples` over FFI with no WAV round-trip.
+    /// `stop()` itself is untouched; both share `teardownAndCollect()` so the
+    /// five capture invariants (tap teardown, engine stop, `running` flag,
+    /// lock-guarded sample drain, streaming-handler clear) live in one place.
+    func stopRaw() -> [Float] {
+        teardownAndCollect()
+    }
+
+    /// Idempotent: stops the engine/tap, clears the streaming handler, and
+    /// drains the lock-guarded sample buffer. Logs level, not just length —
+    /// the server drops anything under avg_rms 0.001 and returns an empty
+    /// transcript, so a silent capture is otherwise indistinguishable from
+    /// "Diana Voice just didn't hear me".
+    private func teardownAndCollect() -> [Float] {
         guard running else {
             frameHandler = nil
-            return Data()
+            return []
         }
         frameHandler = nil
         engine.inputNode.removeTap(onBus: 0)
@@ -168,14 +187,11 @@ final class AudioCapture: @unchecked Sendable {
         let captured = samples
         samples.removeAll(keepingCapacity: true)
         lock.unlock()
-        // Log level, not just length: the server drops anything under
-        // avg_rms 0.001 and returns an empty transcript, so a silent capture
-        // is otherwise indistinguishable from "Diana Voice just didn't hear me".
         let rms = captured.isEmpty
             ? 0
             : (captured.reduce(0) { $0 + $1 * $1 } / Float(captured.count)).squareRoot()
         NSLog("AudioCapture: captured \(captured.count) samples, rms=\(rms)")
-        return Self.encodeWav16kMono(captured)
+        return captured
     }
 
     /// Resample/downmix an input buffer to 16 kHz mono Float32 and append it.

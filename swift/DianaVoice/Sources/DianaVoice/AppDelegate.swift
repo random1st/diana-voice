@@ -9,15 +9,16 @@ import VoiceFFI
 let voicePort: UInt16 = 4525
 
 /// Assembles the overlay panel (avatar), the SSE client that drives its mood,
-/// and the tray menu. No windows, no environment-variable hooks, no
-/// push-to-talk — v1's product surface is the two MCP tools
-/// (voice_speak/voice_listen), not a GUI to interact with directly.
+/// the tray menu, and push-to-talk. No windows, no environment-variable
+/// hooks — the product surface is the two MCP tools (voice_speak/voice_listen)
+/// plus PTT, not a GUI to interact with directly.
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var panel: OverlayPanel?
     private var sseClient: SSEClient?
     private var statusItemController: StatusItemController?
     private var hostingView: ClickThroughHostingView<AvatarOverlayView>?
+    private var pushToTalk: PushToTalkController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let url = URL(string: "http://127.0.0.1:\(voicePort)/ui-events") else {
@@ -47,12 +48,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.panel = overlayPanel
         self.hostingView = hv
 
-        // Menu-bar tray icon (status line, mic info, MCP config snippet, Quit).
-        let tray = StatusItemController()
-        tray.onFeedback = { [weak client] text in
+        // Menu-bar tray icon (status lines, mic info, PTT binding, MCP config
+        // snippet, Quit). Feedback (accessibility warnings, binding changes,
+        // clipboard confirmations) all surface the same way: a transient
+        // bubble on the avatar.
+        let feedback: (String) -> Void = { [weak client] text in
             Task { @MainActor in client?.showTransientBubble(text) }
         }
+
+        let tray = StatusItemController()
+        tray.onFeedback = feedback
         self.statusItemController = tray
+
+        // Push-to-talk: hold a key → capture mic → transcribe (in-process
+        // FFI, no server round-trip) → paste into the frontmost app. Default
+        // binding is "Hold Fn"; the tray menu can switch to "Option+Space" or
+        // "Off". See PushToTalk.swift for the coordinator/monitor mechanics.
+        let ptt = PushToTalkController(client: client)
+        ptt.onFeedback = feedback
+        tray.onPttBindingChange = { [weak ptt] binding in ptt?.setBinding(binding) }
+        self.pushToTalk = ptt
     }
 
     // MARK: - Native capture (voice_listen)
