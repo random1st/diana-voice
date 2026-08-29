@@ -61,22 +61,18 @@ let bubbleFontSizeDefault: CGFloat = 13
 // MARK: - AvatarImageResolver
 
 /// Single source of truth for the avatar image priority chain.
-/// Priority: SSE override → custom path → bundled `diana.png` → nil (gray
-/// circle fallback in AvatarView). The bundled photo is a personal asset:
-/// the public build strips it at packaging time (DIANA_PUBLIC_BUILD=1 in
-/// package-app.sh, same convention as the donor) and falls to the circle.
+/// Priority: SSE override → custom path → nil (gray circle fallback in
+/// AvatarView). There is no bundled photo: the old default was a personal
+/// asset that must not ship in a public repo — the user picks their own via
+/// the tray ("Choose Avatar Image…"), stored as app-support avatar.png.
 enum AvatarImageResolver {
-    static let bundled: NSImage? = Bundle.module
-        .url(forResource: "diana", withExtension: "png")
-        .flatMap { NSImage(contentsOf: $0) }
-
     static func current(override avatarOverride: NSImage?, customPath: String?) -> NSImage? {
         if let img = avatarOverride { return img }
         if let path = customPath,
            !path.isEmpty,
            FileManager.default.fileExists(atPath: path),
            let nsImage = NSImage(contentsOfFile: path) { return nsImage }
-        return bundled
+        return nil
     }
 }
 
