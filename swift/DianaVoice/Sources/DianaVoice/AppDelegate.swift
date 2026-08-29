@@ -70,7 +70,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tray.onPttBindingChange = { [weak ptt] binding in ptt?.setBinding(binding) }
         self.pushToTalk = ptt
 
-        // First-run setup: mic permission → voice reference → model download.
+        // Diana's bundled voice becomes the active reference when none exists
+        // — the product speaks out of the box; Setup's recording is optional.
+        DefaultVoice.installIfMissing()
+
+        // First-run setup: mic permission → voice choice → model download.
         // Auto-shown while incomplete; reopenable from the tray to re-record
         // the voice reference.
         let onboarding = OnboardingController()
