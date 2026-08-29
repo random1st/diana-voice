@@ -14,6 +14,7 @@
 //! becomes a first-call delay instead of an error.
 
 use std::io::{BufRead, Write};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const DEFAULT_PORT: u16 = 4525;
@@ -79,12 +80,69 @@ fn ensure_server(agent: &ureq::Agent) -> Result<String, String> {
     Err("Diana Voice did not come up within 10 s".into())
 }
 
+/// Shared bridge state. One instance for the process, shared by the
+/// per-message forwarding threads.
+struct Bridge {
+    agent: ureq::Agent,
+    base: String,
+    session_id: Mutex<Option<String>>,
+    /// The client's own `initialize` line, replayed verbatim to open a fresh
+    /// session when the server returns 404 (it prunes sessions after 1 h —
+    /// without a re-init here, voice would die permanently mid-conversation).
+    init_line: Mutex<Option<String>>,
+}
+
+impl Bridge {
+    fn post(&self, line: &str) -> Result<ureq::Response, ureq::Error> {
+        let sid = self.session_id.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mut req = self
+            .agent
+            .post(&self.base)
+            .set("Content-Type", "application/json")
+            .set("Accept", "application/json, text/event-stream");
+        if let Some(sid) = &sid {
+            req = req.set("Mcp-Session-Id", sid);
+        }
+        req.send_string(line)
+    }
+
+    fn store_session_from(&self, resp: &ureq::Response) {
+        if let Some(sid) = resp.header("mcp-session-id") {
+            let mut guard = self.session_id.lock().unwrap_or_else(|e| e.into_inner());
+            if guard.as_deref() != Some(sid) {
+                *guard = Some(sid.to_string());
+            }
+        }
+    }
+
+    /// The server no longer knows our session (pruned or restarted): drop the
+    /// stale id, replay the client's initialize + notifications/initialized,
+    /// and report whether a fresh session was established.
+    fn reinitialize(&self) -> bool {
+        let init = self.init_line.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let Some(init) = init else { return false };
+
+        *self.session_id.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        eprintln!("diana-voice-mcp: session expired, re-initializing");
+        match self.post(&init) {
+            Ok(resp) => {
+                self.store_session_from(&resp);
+                let _ = resp.into_string();
+                let _ = self.post(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
+                self.session_id.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+            }
+            Err(_) => false,
+        }
+    }
+}
+
 fn main() {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(2))
-        // tools/call voice_listen legitimately blocks for up to timeout_sec
-        // while the user speaks; give it headroom rather than cutting it off.
-        .timeout(Duration::from_secs(120))
+        // Must outlive the longest tool call: voice_listen is server-clamped
+        // to 120 s of listening plus transcription, and voice_speak plays the
+        // whole utterance before returning.
+        .timeout(Duration::from_secs(300))
         .build();
 
     let base = match ensure_server(&agent) {
@@ -95,10 +153,17 @@ fn main() {
         }
     };
 
-    let stdin = std::io::stdin();
-    let stdout = std::io::stdout();
-    let mut session_id: Option<String> = None;
+    let bridge = Arc::new(Bridge {
+        agent,
+        base,
+        session_id: Mutex::new(None),
+        init_line: Mutex::new(None),
+    });
+    // Serializes stdout writes across forwarding threads — a torn line would
+    // corrupt the newline-delimited JSON-RPC framing.
+    let out_lock: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
 
+    let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
         let line = match line {
             Ok(l) => l,
@@ -107,60 +172,78 @@ fn main() {
         if line.trim().is_empty() {
             continue;
         }
-
-        let mut req = agent
-            .post(&base)
-            .set("Content-Type", "application/json")
-            .set("Accept", "application/json, text/event-stream");
-        if let Some(sid) = &session_id {
-            req = req.set("Mcp-Session-Id", sid);
+        if extract_method(&line).as_deref() == Some("initialize") {
+            *bridge.init_line.lock().unwrap_or_else(|e| e.into_inner()) = Some(line.clone());
         }
 
-        match req.send_string(&line) {
-            Ok(resp) => {
-                if session_id.is_none() {
-                    if let Some(sid) = resp.header("mcp-session-id") {
-                        session_id = Some(sid.to_string());
-                    }
-                }
-                let status = resp.status();
-                let body = resp.into_string().unwrap_or_default();
-                // 202 = accepted notification, no response expected on stdio.
-                if status != 202 && !body.trim().is_empty() {
-                    let mut out = stdout.lock();
-                    let _ = writeln!(out, "{}", body.trim());
-                    let _ = out.flush();
-                }
+        // One thread per in-flight message: a voice_listen POST legitimately
+        // blocks for its whole listen window, and pings / notifications /
+        // cancellations from the client must not queue behind it on stdin.
+        // Clients correlate responses by id, so completion order is free.
+        let bridge = bridge.clone();
+        let out_lock = out_lock.clone();
+        std::thread::spawn(move || forward_line(&bridge, &line, &out_lock));
+    }
+}
+
+fn forward_line(bridge: &Bridge, line: &str, out_lock: &Mutex<()>) {
+    let mut result = bridge.post(line);
+
+    // Session pruned server-side → transparent re-init + single retry.
+    if matches!(&result, Err(ureq::Error::Status(404, _))) && bridge.reinitialize() {
+        result = bridge.post(line);
+    }
+
+    match result {
+        Ok(resp) => {
+            bridge.store_session_from(&resp);
+            let status = resp.status();
+            let body = resp.into_string().unwrap_or_default();
+            // 202 = accepted notification, no response expected on stdio.
+            if status != 202 && !body.trim().is_empty() {
+                write_line(out_lock, body.trim());
             }
-            Err(ureq::Error::Status(code, resp)) => {
-                let body = resp.into_string().unwrap_or_default();
-                // Surface the server's JSON-RPC error if it sent one, else wrap.
-                let mut out = stdout.lock();
-                if body.trim().starts_with('{') {
-                    let _ = writeln!(out, "{}", body.trim());
-                } else if let Some(id) = extract_id(&line) {
-                    let err = serde_json::json!({
-                        "jsonrpc": "2.0", "id": id,
-                        "error": {"code": -32000, "message": format!("HTTP {code} from Diana Voice")}
-                    });
-                    let _ = writeln!(out, "{err}");
-                }
-                let _ = out.flush();
+        }
+        Err(ureq::Error::Status(code, resp)) => {
+            let body = resp.into_string().unwrap_or_default();
+            // Surface the server's JSON-RPC error if it sent one, else wrap.
+            if body.trim().starts_with('{') {
+                write_line(out_lock, body.trim());
+            } else if let Some(id) = extract_id(line) {
+                let err = serde_json::json!({
+                    "jsonrpc": "2.0", "id": id,
+                    "error": {"code": -32000, "message": format!("HTTP {code} from Diana Voice")}
+                });
+                write_line(out_lock, &err.to_string());
             }
-            Err(e) => {
-                eprintln!("diana-voice-mcp: transport error: {e}");
-                if let Some(id) = extract_id(&line) {
-                    let err = serde_json::json!({
-                        "jsonrpc": "2.0", "id": id,
-                        "error": {"code": -32000, "message": "Diana Voice is unreachable"}
-                    });
-                    let mut out = stdout.lock();
-                    let _ = writeln!(out, "{err}");
-                    let _ = out.flush();
-                }
+        }
+        Err(e) => {
+            eprintln!("diana-voice-mcp: transport error: {e}");
+            if let Some(id) = extract_id(line) {
+                let err = serde_json::json!({
+                    "jsonrpc": "2.0", "id": id,
+                    "error": {"code": -32000, "message": "Diana Voice is unreachable"}
+                });
+                write_line(out_lock, &err.to_string());
             }
         }
     }
+}
+
+fn write_line(out_lock: &Mutex<()>, s: &str) {
+    let _guard = out_lock.lock().unwrap_or_else(|e| e.into_inner());
+    let mut out = std::io::stdout().lock();
+    let _ = writeln!(out, "{s}");
+    let _ = out.flush();
+}
+
+/// Pull the method out of a raw JSON-RPC line.
+fn extract_method(line: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(line)
+        .ok()?
+        .get("method")?
+        .as_str()
+        .map(str::to_string)
 }
 
 /// Pull the request id out of a raw JSON-RPC line (None for notifications).

@@ -80,10 +80,20 @@ impl SttManager {
     ///
     /// Stops on silence detection after speech (800 ms), no-speech timeout
     /// (5 s), or `timeout_sec`. `language` is a BCP-47 hint or "auto".
+    ///
+    /// Cancellation-safe: this future is polled inline in the HTTP request
+    /// handler, so a client disconnect mid-listen DROPS it. Cleanup must not
+    /// live on the return paths alone — `ListeningGuard` releases
+    /// `is_listening` (and restores the idle UI state) from Drop, or every
+    /// later `voice_listen` would get "Already listening" until restart.
     pub async fn start_listening(&self, timeout_sec: u64, language: &str) -> Result<String> {
         if self.is_listening.swap(true, Ordering::SeqCst) {
             return Err(anyhow!("Already listening"));
         }
+        let _guard = ListeningGuard {
+            is_listening: self.is_listening.clone(),
+            ui_event_tx: self.ui_event_tx.clone(),
+        };
 
         let _ = self
             .ui_event_tx
@@ -97,14 +107,12 @@ impl SttManager {
         let audio_f32 = match self.record_audio(timeout_sec).await {
             Ok(samples) => {
                 if samples.is_empty() {
-                    self.finish_listening();
                     return Ok(String::new());
                 }
                 samples
             }
             Err(e) => {
                 error!("STT recording failed: {}", e);
-                self.finish_listening();
                 return Err(e);
             }
         };
@@ -131,7 +139,6 @@ impl SttManager {
                 "STT: audio too quiet (avg_rms={:.4}), skipping transcription",
                 avg_rms
             );
-            self.finish_listening();
             return Ok(String::new());
         }
 
@@ -139,7 +146,6 @@ impl SttManager {
             Ok(t) => t,
             Err(e) => {
                 error!("STT transcription failed: {}", e);
-                self.finish_listening();
                 return Err(e);
             }
         };
@@ -152,7 +158,6 @@ impl SttManager {
         let text = cleaned;
 
         info!("STT: transcribed [{}chars]", text.len());
-        self.finish_listening();
         Ok(text)
     }
 
@@ -176,16 +181,6 @@ impl SttManager {
         Ok(strip_whisper_hallucinations(&text))
     }
 
-    fn finish_listening(&self) {
-        self.is_listening.store(false, Ordering::SeqCst);
-        let _ = self
-            .ui_event_tx
-            .send(("avatar-mood".to_string(), json!("neutral")));
-        let _ = self
-            .ui_event_tx
-            .send(("voice-state".to_string(), json!("idle")));
-    }
-
     /// Get 16 kHz mono samples for one utterance: either the
     /// `DIANA_VOICE_LISTEN_WAV` testability hook (CI/bench, no mic needed) or
     /// a live VAD-endpointed capture session.
@@ -196,17 +191,17 @@ impl SttManager {
         }
 
         let (session_id, mut rx) = capture::create_session();
+        // Guard, not a trailing call: if this future is dropped mid-listen
+        // (client disconnect), the registry entry must still be removed so the
+        // Swift pusher gets Stop on its next frame instead of leaking.
+        let _capture_guard = CaptureSessionGuard(session_id);
         let _ = self.ui_event_tx.send((
             "capture-start".to_string(),
             json!({ "session_id": session_id }),
         ));
         info!("STT: capture session {} started, awaiting frames", session_id);
 
-        let result = self
-            .endpoint_frames(session_id, &mut rx, timeout_sec)
-            .await;
-        capture::finish_capture(session_id);
-        result
+        self.endpoint_frames(session_id, &mut rx, timeout_sec).await
     }
 
     /// Drain pushed frames from a capture session, feeding them through VAD
@@ -256,11 +251,21 @@ impl SttManager {
         let mut vad_buffer: Vec<f32> = Vec::with_capacity(VAD_FRAME_SIZE);
         let started = Instant::now();
         let no_speech_timeout = NO_SPEECH_TIMEOUT;
+        // The Endpointer's own timeout counts RECEIVED frames, so it never
+        // fires if the pusher stalls (route change, app suspended). This
+        // wall-clock deadline is the guarantee behind the schema's "Max
+        // seconds to listen" — checked every 30 ms poll tick, frames or not.
+        let overall_deadline = Duration::from_secs(timeout_sec);
 
         let mut pending = Some(first);
         loop {
             if !self.is_listening.load(Ordering::SeqCst) {
                 info!("STT: stopped externally");
+                break;
+            }
+
+            if started.elapsed() >= overall_deadline {
+                info!("STT: wall-clock listen timeout reached ({timeout_sec}s)");
                 break;
             }
 
@@ -370,6 +375,37 @@ fn read_wav_utterance(path: &str) -> Result<Vec<f32>> {
         hound::SampleFormat::Float => reader.samples::<f32>().collect(),
     };
     samples.map_err(|e| anyhow!("failed to decode DIANA_VOICE_LISTEN_WAV: {e}"))
+}
+
+/// Releases the listening flag and restores the idle UI state when the
+/// `start_listening` future completes OR is dropped mid-await (client
+/// disconnect / request timeout). Without this, a cancelled `voice_listen`
+/// left `is_listening` true forever — every later call failed with
+/// "Already listening" until process restart.
+struct ListeningGuard {
+    is_listening: Arc<AtomicBool>,
+    ui_event_tx: broadcast::Sender<(String, serde_json::Value)>,
+}
+
+impl Drop for ListeningGuard {
+    fn drop(&mut self) {
+        self.is_listening.store(false, Ordering::SeqCst);
+        let _ = self
+            .ui_event_tx
+            .send(("avatar-mood".to_string(), json!("neutral")));
+        let _ = self
+            .ui_event_tx
+            .send(("voice-state".to_string(), json!("idle")));
+    }
+}
+
+/// Removes the capture-registry entry on scope exit, including future drop.
+struct CaptureSessionGuard(u64);
+
+impl Drop for CaptureSessionGuard {
+    fn drop(&mut self) {
+        capture::finish_capture(self.0);
+    }
 }
 
 // ── Module-level helpers ─────────────────────────────────────────────────────

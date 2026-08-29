@@ -14,7 +14,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private var sttLineItem: NSMenuItem!
     private var ttsLineItem: NSMenuItem!
-    private var micItem: NSMenuItem!
+    private var micMenuItem: NSMenuItem!
+    private var speakerMenuItem: NSMenuItem!
     private var pttMenuItems: [NSMenuItem] = []
     private var pttBinding: PttBinding = PttBinding.load()
 
@@ -58,9 +59,19 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         ttsLineItem.isEnabled = false
         menu.addItem(ttsLineItem)
 
-        micItem = NSMenuItem(title: Self.micStatusLine(), action: nil, keyEquivalent: "")
-        micItem.isEnabled = false
-        menu.addItem(micItem)
+        // Device pickers switch the SYSTEM default via CoreAudio rather than
+        // pinning a device inside the engines: capture rebuilds onto the
+        // current default input on every start (AudioCapture contract), and
+        // TTS opens its output stream per utterance — both pick the change up
+        // automatically, and pinning is the path that wedged AUHAL (see
+        // AudioCapture's setDeviceID note).
+        micMenuItem = NSMenuItem(title: "Microphone", action: nil, keyEquivalent: "")
+        micMenuItem.submenu = NSMenu()
+        menu.addItem(micMenuItem)
+
+        speakerMenuItem = NSMenuItem(title: "Speakers", action: nil, keyEquivalent: "")
+        speakerMenuItem.submenu = NSMenu()
+        menu.addItem(speakerMenuItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -126,7 +137,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // instant it's shown.
         sttLineItem.title = Self.sttStatusLine()
         ttsLineItem.title = Self.ttsStatusLine()
-        micItem.title = Self.micStatusLine()
+        rebuildDeviceSubmenu(
+            micMenuItem, scope: kAudioObjectPropertyScopeInput,
+            defaultSelector: kAudioHardwarePropertyDefaultInputDevice,
+            action: #selector(selectMicrophone(_:)))
+        rebuildDeviceSubmenu(
+            speakerMenuItem, scope: kAudioObjectPropertyScopeOutput,
+            defaultSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            action: #selector(selectSpeaker(_:)))
         refreshPttCheckmarks()
     }
 
@@ -140,8 +158,47 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         "TTS: Qwen3-TTS (voice clone)"
     }
 
-    private static func micStatusLine() -> String {
-        "Microphone: \(defaultInputDeviceName())"
+    // MARK: - Device pickers (system default switch)
+
+    private func rebuildDeviceSubmenu(
+        _ item: NSMenuItem,
+        scope: AudioObjectPropertyScope,
+        defaultSelector: AudioObjectPropertySelector,
+        action: Selector
+    ) {
+        let submenu = item.submenu ?? NSMenu()
+        submenu.removeAllItems()
+        let current = Self.defaultDeviceID(selector: defaultSelector)
+        let devices = Self.devices(withScope: scope)
+        if devices.isEmpty {
+            let none = NSMenuItem(title: "No devices", action: nil, keyEquivalent: "")
+            none.isEnabled = false
+            submenu.addItem(none)
+        }
+        for device in devices {
+            let entry = NSMenuItem(title: device.name, action: action, keyEquivalent: "")
+            entry.target = self
+            entry.representedObject = NSNumber(value: device.id)
+            entry.state = (device.id == current) ? .on : .off
+            submenu.addItem(entry)
+        }
+        item.submenu = submenu
+    }
+
+    @objc private func selectMicrophone(_ sender: NSMenuItem) {
+        changeDefaultDevice(sender, selector: kAudioHardwarePropertyDefaultInputDevice, label: "Microphone")
+    }
+
+    @objc private func selectSpeaker(_ sender: NSMenuItem) {
+        changeDefaultDevice(sender, selector: kAudioHardwarePropertyDefaultOutputDevice, label: "Speakers")
+    }
+
+    private func changeDefaultDevice(
+        _ sender: NSMenuItem, selector: AudioObjectPropertySelector, label: String
+    ) {
+        guard let num = sender.representedObject as? NSNumber else { return }
+        let ok = Self.setDefaultDevice(AudioDeviceID(num.uint32Value), selector: selector)
+        onFeedback?(ok ? "\(label): \(sender.title)" : "Could not switch \(label.lowercased())")
     }
 
     // MARK: - Actions
@@ -226,11 +283,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         NSApp.terminate(nil)
     }
 
-    // MARK: - Microphone info (CoreAudio; mirrors AudioCapture's default-input lookup)
+    // MARK: - CoreAudio device enumeration / default switching
 
-    private static func defaultInputDeviceName() -> String {
+    private static func defaultDeviceID(selector: AudioObjectPropertySelector) -> AudioDeviceID? {
         var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
@@ -238,10 +295,70 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
         let status = AudioObjectGetPropertyData(
             AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceID)
-        guard status == noErr, deviceID != AudioDeviceID(kAudioObjectUnknown) else {
-            return "no device"
-        }
+        guard status == noErr, deviceID != AudioDeviceID(kAudioObjectUnknown) else { return nil }
+        return deviceID
+    }
 
+    private static func setDefaultDevice(
+        _ id: AudioDeviceID, selector: AudioObjectPropertySelector
+    ) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID = id
+        let status = AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil,
+            UInt32(MemoryLayout<AudioDeviceID>.size), &deviceID)
+        if status != noErr {
+            NSLog("StatusItem: setDefaultDevice(\(id)) failed status=\(status)")
+        }
+        return status == noErr
+    }
+
+    /// All devices that have at least one channel in `scope` (input devices
+    /// for the mic picker, output devices for the speaker picker).
+    private static func devices(withScope scope: AudioObjectPropertyScope) -> [(id: AudioDeviceID, name: String)] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr
+        else { return [] }
+        let count = Int(size) / MemoryLayout<AudioDeviceID>.size
+        var ids = [AudioDeviceID](repeating: 0, count: count)
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &ids) == noErr
+        else { return [] }
+
+        return ids.compactMap { id in
+            guard channelCount(of: id, scope: scope) > 0 else { return nil }
+            return (id: id, name: deviceName(id))
+        }
+    }
+
+    private static func channelCount(of id: AudioDeviceID, scope: AudioObjectPropertyScope) -> Int {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: scope,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(id, &address, 0, nil, &size) == noErr, size > 0
+        else { return 0 }
+        let raw = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(size), alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { raw.deallocate() }
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, raw) == noErr else { return 0 }
+        let list = UnsafeMutableAudioBufferListPointer(raw.assumingMemoryBound(to: AudioBufferList.self))
+        return list.reduce(0) { $0 + Int($1.mNumberChannels) }
+    }
+
+    private static func deviceName(_ deviceID: AudioDeviceID) -> String {
         var nameAddress = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyDeviceNameCFString,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -254,7 +371,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         var nameSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
         var unmanagedName: Unmanaged<CFString>?
         let nameStatus = AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &unmanagedName)
-        guard nameStatus == noErr, let unmanagedName else { return "unknown" }
+        guard nameStatus == noErr, let unmanagedName else { return "Device \(deviceID)" }
         return unmanagedName.takeRetainedValue() as String
     }
 

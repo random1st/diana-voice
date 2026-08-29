@@ -149,8 +149,21 @@ final class AudioCapture: @unchecked Sendable {
     /// FFI into the Rust capture registry, and the render thread must not
     /// take that detour). The pull-model `stop() -> Data` path is unchanged;
     /// all five capture invariants above apply to both modes.
-    var frameHandler: (([Float]) -> Void)?
+    ///
+    /// Lock-guarded like `samples`: the render-thread tap reads this property
+    /// while the main thread sets (AppDelegate) and clears (teardown) it — an
+    /// unguarded ARC closure reference racing a release is a torn read/crash
+    /// in the audio callback.
+    var frameHandler: (([Float]) -> Void)? {
+        get { lock.lock(); defer { lock.unlock() }; return _frameHandler }
+        set { lock.lock(); defer { lock.unlock() }; _frameHandler = newValue }
+    }
+    private var _frameHandler: (([Float]) -> Void)?
     private let frameQueue = DispatchQueue(label: "diana.voice.frames")
+
+    /// True while a voice_listen streaming session owns the engine — PTT
+    /// checks this before starting its own capture on the shared singleton.
+    var isStreamingSession: Bool { frameHandler != nil }
 
     /// Stop capturing and return a 16 kHz mono 16-bit WAV of everything captured
     /// (empty Data if nothing/no device). Idempotent. Clears the streaming

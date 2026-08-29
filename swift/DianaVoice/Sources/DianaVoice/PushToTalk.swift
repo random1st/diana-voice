@@ -99,6 +99,9 @@ final class PushToTalkController {
         if let localFlagsMonitor { NSEvent.removeMonitor(localFlagsMonitor) }
         globalFlagsMonitor = nil
         localFlagsMonitor = nil
+        // Explicit unregister — the Carbon registry keeps the instance alive,
+        // so dropping our reference alone would leave the hotkey armed.
+        globalHotkey?.unregister()
         globalHotkey = nil
         fnHoldTask?.cancel()
         fnHoldTask = nil
@@ -197,6 +200,14 @@ final class PushToTalkController {
 
     private func beginCapture() {
         guard !captureActive else { return }
+        // A voice_listen session owns the shared engine right now (its
+        // frameHandler streams to the Rust VAD). Without this guard a PTT
+        // press-release would tear that engine down and paste the SESSION's
+        // audio into the frontmost app while the MCP call starves.
+        guard !AudioCapture.shared.isStreamingSession else {
+            onFeedback?("Diana Voice is already listening — wait for the current session to finish.")
+            return
+        }
         captureActive = true
         client?.mood = .listening
         Task { await coordinator.start() }
@@ -244,9 +255,18 @@ actor PttCoordinator {
                 // Blocking Metal inference — never call this on the main thread.
                 let text = try? transcribeSamples(samples: samples, language: "auto")
                 if let text, !text.isEmpty {
+                    // The paste is invisible when it lands in a non-text target
+                    // (or silently no-ops without Accessibility) — the bubble
+                    // is the user's only confirmation of what was heard.
+                    await MainActor.run { client?.showTransientBubble(text) }
                     await Paster.paste(text)
+                    await MainActor.run { client?.mood = .idle }
+                } else {
+                    await MainActor.run {
+                        client?.mood = .idle
+                        client?.showTransientBubble("Didn't catch that — try holding the key while speaking.")
+                    }
                 }
-                await MainActor.run { client?.mood = .idle }
             }
         }
     }

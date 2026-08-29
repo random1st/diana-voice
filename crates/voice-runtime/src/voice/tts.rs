@@ -132,7 +132,27 @@ impl TtsManager {
             if guard.is_none() {
                 info!("Qwen TTS: loading Candle model (first use)...");
                 match QwenTtsEngine::load() {
-                    Ok(engine) => *guard = Some(engine),
+                    Ok(engine) => {
+                        // Loading weights is not warming up: the first frames of
+                        // the first real synthesis compile Metal shaders, chunk
+                        // cadence collapses, the prebuffer drains, and the first
+                        // utterance stutters (donor fix, 2026-08-29). One short
+                        // discarded synthesis takes the compile hit before any
+                        // audio reaches the sink.
+                        info!("Qwen TTS: warm-up synthesis...");
+                        match engine.synthesize_streaming("Готова.") {
+                            Ok(session) => {
+                                for chunk in session {
+                                    if let Err(e) = chunk {
+                                        error!("Qwen TTS: warm-up chunk failed: {}", e);
+                                        break;
+                                    }
+                                }
+                            }
+                            Err(e) => error!("Qwen TTS: warm-up failed: {}", e),
+                        }
+                        *guard = Some(engine);
+                    }
                     Err(e) => return Err(anyhow!("Qwen TTS model load: {}", e)),
                 }
             }

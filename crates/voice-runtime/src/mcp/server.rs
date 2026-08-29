@@ -263,6 +263,13 @@ async fn handle_post(
 
         "ping" => Json(jsonrpc_ok(id, json!({}))).into_response(),
 
+        // JSON-RPC 2.0 forbids replying to ANY notification, and Streamable
+        // HTTP (2025-03-26) requires 202 with no body for notification-only
+        // POSTs. Clients routinely send notifications/cancelled while a long
+        // voice tool call is in flight — answering it with an error object
+        // (id:null) reads as a malformed unsolicited response.
+        m if m.starts_with("notifications/") => StatusCode::ACCEPTED.into_response(),
+
         _ => Json(jsonrpc_error(
             id,
             -32601,

@@ -22,7 +22,7 @@ impl Tool for VoiceListenTool {
             "properties": {
                 "timeout_sec": {
                     "type": "integer",
-                    "description": "Max seconds to listen (default: 30)"
+                    "description": "Max seconds to listen (default: 30, max: 120)"
                 }
             },
             "additionalProperties": false
@@ -30,10 +30,15 @@ impl Tool for VoiceListenTool {
     }
 
     async fn execute(&self, args: &Value, ctx: &ToolContext) -> Value {
+        // Clamped: the stdio proxy's HTTP timeout must outlive the longest
+        // possible call, so the tool enforces an upper bound instead of
+        // trusting the client (uncapped values also stretch endpointer state).
+        const MAX_LISTEN_TIMEOUT_SECS: u64 = 120;
         let timeout = args
             .get("timeout_sec")
             .and_then(|v| v.as_u64())
-            .unwrap_or(DEFAULT_LISTEN_TIMEOUT_SECS);
+            .unwrap_or(DEFAULT_LISTEN_TIMEOUT_SECS)
+            .min(MAX_LISTEN_TIMEOUT_SECS);
 
         // Interrupt any ongoing TTS
         if let Some(tts) = ctx.state.tts.read().await.as_ref() {

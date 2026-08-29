@@ -58,9 +58,23 @@ final class GlobalHotkey {
         _ = hotKeyID  // silence unused-write warning
     }
 
+    /// Unregister the hotkey and drop the instance from the registry.
+    ///
+    /// MUST be called explicitly by the owner: the static `instances` registry
+    /// holds a strong reference, so `deinit` alone can never run — releasing
+    /// the owner's reference without this call leaves the Carbon hotkey (and
+    /// its capture closures) live forever, e.g. Option+Space still starting
+    /// the mic after PTT was switched to Off.
+    func unregister() {
+        if let hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+            self.hotKeyRef = nil
+        }
+        GlobalHotkey.instances[id] = nil
+    }
+
     deinit {
         if let hotKeyRef { UnregisterEventHotKey(hotKeyRef) }
-        GlobalHotkey.instances[id] = nil
     }
 
     // MARK: - Carbon plumbing
