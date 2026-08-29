@@ -248,21 +248,61 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func setUpClaudeCode() {
         // The real thing, not a snippet: `claude mcp add` is idempotent enough
-        // for a menu action and needs no manual config editing. GUI apps don't
-        // inherit the shell PATH, hence the login-shell wrapper.
-        let cmd = "claude mcp add diana-voice -- '\(Self.proxyPath())'"
+        // for a menu action and needs no manual config editing.
         let feedback = onFeedback
+        let proxy = Self.proxyPath()
         DispatchQueue.global().async {
+            guard let claude = Self.claudePath() else {
+                DispatchQueue.main.async {
+                    feedback?("claude CLI not found — use Copy MCP Config instead")
+                }
+                return
+            }
             let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            p.arguments = ["-lc", cmd]
+            p.executableURL = URL(fileURLWithPath: claude)
+            p.arguments = ["mcp", "add", "diana-voice", "--", proxy]
             let ok = (try? p.run()) != nil
             if ok { p.waitUntilExit() }
             let message = ok && p.terminationStatus == 0
                 ? "Claude Code configured — restart your session"
-                : "claude CLI not found — use Copy MCP Config instead"
+                : "claude mcp add failed — use Copy MCP Config instead"
             DispatchQueue.main.async { feedback?(message) }
         }
+    }
+
+    /// Find the `claude` binary. A GUI app inherits no shell PATH, and a
+    /// NON-interactive login zsh (`zsh -lc`) reads .zprofile but NOT .zshrc —
+    /// where the native Claude Code installer and most Node/bun setups put
+    /// their PATH exports. So: probe the known install locations directly,
+    /// then fall back to asking an interactive login shell.
+    private static func claudePath() -> String? {
+        let home = NSHomeDirectory()
+        let candidates = [
+            "\(home)/.claude/local/claude",  // claude migrate-installer
+            "\(home)/.local/bin/claude",     // native installer
+            "/opt/homebrew/bin/claude",      // brew / npm-global on Apple Silicon
+            "/usr/local/bin/claude",
+            "\(home)/.bun/bin/claude",
+            "\(home)/.npm-global/bin/claude",
+        ]
+        if let hit = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            return hit
+        }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = ["-lic", "whence -p claude"]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = Pipe()
+        guard (try? p.run()) != nil else { return nil }
+        p.waitUntilExit()
+        guard p.terminationStatus == 0,
+              let data = try? out.fileHandleForReading.readToEnd(),
+              let path = String(data: data, encoding: .utf8)?
+                  .trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty
+        else { return nil }
+        return path
     }
 
     // MARK: - Push to Talk
