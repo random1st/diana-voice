@@ -24,6 +24,11 @@ final class SSEClient: ObservableObject {
     @Published var mood: AvatarMood = .idle
     @Published var speech: String = ""
 
+    /// Fired on `capture-start` with the runtime's session id: the native mic
+    /// path begins here (AppDelegate starts AVAudioEngine and pushes frames
+    /// back over FFI until the runtime's VAD says stop).
+    var onCaptureStart: ((UInt64) -> Void)?
+
     private var sseReader: SSEReader?
     private var bubbleTimer: Task<Void, Never>?
     private let backoffSeconds: Double = 3
@@ -76,9 +81,15 @@ final class SSEClient: ObservableObject {
             }
 
         case "capture-start":
-            // Mic-push session announcement. Native capture wiring lands in
-            // M4; for now this is observability only.
-            NSLog("SSEClient: capture-start \(data)")
+            // Payload: {"session_id": N}. The id ties the pushed frames to the
+            // one voice_listen call draining them on the Rust side.
+            if let json = try? JSONSerialization.jsonObject(with: Data(data.utf8)) as? [String: Any],
+               let sid = json["session_id"] as? UInt64 ?? (json["session_id"] as? Int).map(UInt64.init) {
+                NSLog("SSEClient: capture-start session \(sid)")
+                onCaptureStart?(sid)
+            } else {
+                NSLog("SSEClient: capture-start with unparseable payload: \(data)")
+            }
 
         default:
             break

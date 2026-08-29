@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import VoiceFFI
 
 /// Fixed MCP/HTTP port for voice-runtime's in-process server (started in
 /// main.swift before this delegate is constructed). Diana Voice has no
@@ -27,6 +28,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let client = SSEClient(url: url)
         self.sseClient = client
 
+        // Native mic path (voice_listen): runtime announces a session over SSE,
+        // we stream AVAudioEngine frames back over FFI until its VAD returns
+        // Stop (silence endpoint / timeout) or the session is torn down.
+        client.onCaptureStart = { [weak self] sessionId in
+            self?.startNativeCapture(sessionId: sessionId)
+        }
+
         let overlayPanel = OverlayPanel.makeDefault()
 
         let hv = ClickThroughHostingView(rootView: AvatarOverlayView(client: client))
@@ -45,5 +53,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in client?.showTransientBubble(text) }
         }
         self.statusItemController = tray
+    }
+
+    // MARK: - Native capture (voice_listen)
+
+    /// One session at a time by design (single-user daemon). If a second
+    /// capture-start arrives while the engine runs, the old handler was
+    /// already cleared by stop() or the stale-session Stop below ends it.
+    private func startNativeCapture(sessionId: UInt64) {
+        let capture = AudioCapture.shared
+        capture.frameHandler = { samples in
+            // Runs on AudioCapture's frame queue, NOT the render thread.
+            let control = pushAudioFrame(sessionId: sessionId, samples: samples)
+            if control == .stop {
+                // Endpoint / timeout / stale session: stop the engine (main
+                // thread — engine control contract) and close our end.
+                // finishCapture is idempotent when the runtime already
+                // removed the session.
+                Task { @MainActor in
+                    _ = AudioCapture.shared.stop()
+                }
+                finishCapture(sessionId: sessionId)
+            }
+        }
+        capture.start()
     }
 }

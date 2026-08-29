@@ -50,8 +50,32 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        let claudeItem = NSMenuItem(
+            title: "Set Up for Claude Code",
+            action: #selector(setUpClaudeCode),
+            keyEquivalent: ""
+        )
+        claudeItem.target = self
+        menu.addItem(claudeItem)
+
+        let codexItem = NSMenuItem(
+            title: "Set Up for Codex (copy TOML)",
+            action: #selector(setUpCodex),
+            keyEquivalent: ""
+        )
+        codexItem.target = self
+        menu.addItem(codexItem)
+
+        let cursorItem = NSMenuItem(
+            title: "Set Up for Cursor (copy JSON)",
+            action: #selector(setUpCursor),
+            keyEquivalent: ""
+        )
+        cursorItem.target = self
+        menu.addItem(cursorItem)
+
         let configItem = NSMenuItem(
-            title: "Copy MCP Client Config",
+            title: "Copy MCP Config",
             action: #selector(configureMcpClient),
             keyEquivalent: ""
         )
@@ -87,16 +111,62 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: - Actions
 
-    /// The one-line config a user pastes into an MCP client's settings to
-    /// point it at this app's `voice_speak`/`voice_listen` tools.
-    private static let mcpConfigSnippet =
-        #"{"command": "/Applications/Diana Voice.app/Contents/MacOS/diana-voice-mcp"}"#
+    /// Path clients spawn. Prefer the proxy sitting next to this executable
+    /// (real .app bundle, and also the dev build directory when the proxy is
+    /// copied there); fall back to the canonical /Applications path so copied
+    /// snippets are right for an installed app even when run from dev.
+    private static func proxyPath() -> String {
+        if let dir = Bundle.main.executableURL?.deletingLastPathComponent() {
+            let sibling = dir.appendingPathComponent("diana-voice-mcp")
+            if FileManager.default.isExecutableFile(atPath: sibling.path) {
+                return sibling.path
+            }
+        }
+        return "/Applications/Diana Voice.app/Contents/MacOS/diana-voice-mcp"
+    }
+
+    @objc private func setUpClaudeCode() {
+        // The real thing, not a snippet: `claude mcp add` is idempotent enough
+        // for a menu action and needs no manual config editing. GUI apps don't
+        // inherit the shell PATH, hence the login-shell wrapper.
+        let cmd = "claude mcp add diana-voice -- '\(Self.proxyPath())'"
+        let feedback = onFeedback
+        DispatchQueue.global().async {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            p.arguments = ["-lc", cmd]
+            let ok = (try? p.run()) != nil
+            if ok { p.waitUntilExit() }
+            let message = ok && p.terminationStatus == 0
+                ? "Claude Code configured — restart your session"
+                : "claude CLI not found — use Copy MCP Config instead"
+            DispatchQueue.main.async { feedback?(message) }
+        }
+    }
+
+    @objc private func setUpCodex() {
+        copyToClipboard("""
+        [mcp_servers.diana-voice]
+        command = "\(Self.proxyPath())"
+        """, feedback: "Codex TOML copied — paste into ~/.codex/config.toml")
+    }
+
+    @objc private func setUpCursor() {
+        copyToClipboard("""
+        {"mcpServers": {"diana-voice": {"command": "\(Self.proxyPath())"}}}
+        """, feedback: "Cursor JSON copied — paste into ~/.cursor/mcp.json")
+    }
 
     @objc private func configureMcpClient() {
+        copyToClipboard(#"{"command": "\#(Self.proxyPath())"}"#,
+                        feedback: "MCP config copied to clipboard")
+    }
+
+    private func copyToClipboard(_ text: String, feedback: String) {
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(Self.mcpConfigSnippet, forType: .string)
-        onFeedback?("MCP config copied to clipboard")
+        pb.setString(text, forType: .string)
+        onFeedback?(feedback)
     }
 
     @objc private func quit() {

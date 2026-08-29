@@ -143,10 +143,24 @@ final class AudioCapture: @unchecked Sendable {
         }
     }
 
+    /// Streaming mode (voice_listen): when set before `start()`, every
+    /// converted 16 kHz mono chunk is ALSO delivered to this handler on a
+    /// dedicated serial queue (never the render thread — the handler crosses
+    /// FFI into the Rust capture registry, and the render thread must not
+    /// take that detour). The pull-model `stop() -> Data` path is unchanged;
+    /// all five capture invariants above apply to both modes.
+    var frameHandler: (([Float]) -> Void)?
+    private let frameQueue = DispatchQueue(label: "diana.voice.frames")
+
     /// Stop capturing and return a 16 kHz mono 16-bit WAV of everything captured
-    /// (empty Data if nothing/no device). Idempotent.
+    /// (empty Data if nothing/no device). Idempotent. Clears the streaming
+    /// handler — a finished session must never receive frames from the next one.
     func stop() -> Data {
-        guard running else { return Data() }
+        guard running else {
+            frameHandler = nil
+            return Data()
+        }
+        frameHandler = nil
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         running = false
@@ -190,9 +204,13 @@ final class AudioCapture: @unchecked Sendable {
         }
         guard let channel = out.floatChannelData, out.frameLength > 0 else { return }
         let frames = Int(out.frameLength)
+        let chunk = Array(UnsafeBufferPointer(start: channel[0], count: frames))
         lock.lock()
-        samples.append(contentsOf: UnsafeBufferPointer(start: channel[0], count: frames))
+        samples.append(contentsOf: chunk)
         lock.unlock()
+        if let handler = frameHandler {
+            frameQueue.async { handler(chunk) }
+        }
     }
 
     /// Encode mono Float32 samples (assumed 16 kHz) as a 16-bit PCM WAV.
