@@ -252,19 +252,32 @@ actor PttCoordinator {
             }
             await MainActor.run { client?.mood = .processing }
             Task.detached {
-                // Blocking Metal inference — never call this on the main thread.
-                let text = try? transcribeSamples(samples: samples, language: "auto")
-                if let text, !text.isEmpty {
-                    // The paste is invisible when it lands in a non-text target
-                    // (or silently no-ops without Accessibility) — the bubble
-                    // is the user's only confirmation of what was heard.
-                    await MainActor.run { client?.showTransientBubble(text) }
-                    await Paster.paste(text)
-                    await MainActor.run { client?.mood = .idle }
-                } else {
+                do {
+                    // Blocking Metal inference — never call this on the main thread.
+                    let text = try transcribeSamples(samples: samples, language: "auto")
+                    if !text.isEmpty {
+                        // The paste is invisible when it lands in a non-text
+                        // target (or silently no-ops without Accessibility) —
+                        // the bubble is the user's only confirmation of what
+                        // was heard.
+                        await MainActor.run { client?.showTransientBubble(text) }
+                        await Paster.paste(text)
+                        await MainActor.run { client?.mood = .idle }
+                    } else {
+                        await MainActor.run {
+                            client?.mood = .idle
+                            client?.showTransientBubble("Didn't catch that — try holding the key while speaking.")
+                        }
+                    }
+                } catch {
+                    // Engine errors must NOT masquerade as silence: on a fresh
+                    // install this is "STT model missing — download it first",
+                    // and the user's next step is Setup, not speaking louder.
                     await MainActor.run {
                         client?.mood = .idle
-                        client?.showTransientBubble("Didn't catch that — try holding the key while speaking.")
+                        client?.showTransientBubble(
+                            "Speech engine not ready: \(error.localizedDescription) — run Setup Assistant from the tray.",
+                            duration: 6)
                     }
                 }
             }
