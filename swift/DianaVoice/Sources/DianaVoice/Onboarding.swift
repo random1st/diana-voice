@@ -3,6 +3,46 @@ import AVFoundation
 import SwiftUI
 import VoiceFFI
 
+// MARK: - DefaultVoice
+
+/// Diana's bundled voice reference (wav + exact transcript). Installed into
+/// app support on first launch when the user has no reference yet — the
+/// product speaks with Diana's voice out of the box; recording your own in
+/// Setup simply overwrites these files.
+enum DefaultVoice {
+    static func installIfMissing() {
+        let dataDir = dataDirPath()
+        let refWav = dataDir + "/ref.wav"
+        guard !FileManager.default.fileExists(atPath: refWav) else { return }
+        // Same manual bundle probing as AvatarImageResolver — Bundle.module's
+        // fatalError already crashed one machine and is banned here.
+        let candidates: [URL?] = [
+            Bundle.main.resourceURL,
+            Bundle.main.executableURL?.deletingLastPathComponent(),
+            Bundle.main.bundleURL,
+        ]
+        for dir in candidates {
+            guard let bundleURL = dir?.appendingPathComponent("DianaVoice_DianaVoice.bundle"),
+                  let bundle = Bundle(url: bundleURL),
+                  let wav = bundle.url(forResource: "diana-ref", withExtension: "wav"),
+                  let txt = bundle.url(forResource: "diana-ref", withExtension: "txt")
+            else { continue }
+            do {
+                try FileManager.default.createDirectory(
+                    atPath: dataDir, withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: wav, to: URL(fileURLWithPath: refWav))
+                try FileManager.default.copyItem(
+                    at: txt, to: URL(fileURLWithPath: dataDir + "/ref.txt"))
+                NSLog("DefaultVoice: installed bundled Diana reference")
+            } catch {
+                NSLog("DefaultVoice: install failed: \(error)")
+            }
+            return
+        }
+        NSLog("DefaultVoice: bundled reference not found — Setup recording required")
+    }
+}
+
 // MARK: - OnboardingController
 
 /// First-run setup window: microphone permission → record the voice
@@ -263,8 +303,8 @@ struct OnboardingView: View {
 
     private var voiceStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Step 2 of 3 — Your voice").font(.headline)
-            Text("Read this phrase aloud — Diana Voice will speak with your voice from then on:")
+            Text("Step 2 of 3 — Voice").font(.headline)
+            Text("Diana's voice is included and active by default. If you'd rather it speak with YOUR voice, read this phrase aloud:")
             Text(OnboardingModel.referencePhrase)
                 .italic()
                 .padding(10)
@@ -272,21 +312,23 @@ struct OnboardingView: View {
                 .background(Color.secondary.opacity(0.1))
                 .cornerRadius(6)
             HStack(spacing: 12) {
-                Button(model.isRecording ? "Stop" : (model.referenceSaved ? "Re-record" : "Record")) {
+                Button(model.isRecording ? "Stop" : (model.referenceSaved ? "Re-record" : "Record My Voice")) {
                     model.toggleRecording()
                 }
                 if model.isRecording {
                     Text("Recording…").foregroundColor(.red)
                 } else if model.referenceSaved {
-                    Text("Saved ✓").foregroundColor(.green)
+                    Text("Your voice saved ✓").foregroundColor(.green)
                 }
             }
             if let err = model.recordError {
                 Text(err).font(.callout).foregroundColor(.red)
             }
-            if model.referenceSaved && !model.isRecording {
-                Button("Continue") { model.startDownloads() }
-                    .keyboardShortcut(.defaultAction)
+            if !model.isRecording {
+                Button(model.referenceSaved ? "Continue" : "Keep Diana's Voice") {
+                    model.startDownloads()
+                }
+                .keyboardShortcut(.defaultAction)
             }
         }
     }

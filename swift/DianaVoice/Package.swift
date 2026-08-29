@@ -18,7 +18,13 @@ let package = Package(
                 // call, 2026-08-29: «нормальное лицо»). Users replace it via
                 // the tray ("Choose Avatar Image…" → app-support avatar.png),
                 // which takes priority over this bundled default.
-                .copy("Resources/diana.png")
+                .copy("Resources/diana.png"),
+                // Diana's voice — the default TTS clone reference (wav +
+                // exact transcript pair; both required by ICL cloning).
+                // Installed into app support on first launch when no ref
+                // exists; recording your own in Setup overwrites it.
+                .copy("Resources/diana-ref.wav"),
+                .copy("Resources/diana-ref.txt")
             ],
             // VoiceFFI's static lib embeds the whole voice-runtime (STT/TTS
             // engines on Candle+Metal, VAD, MCP/HTTP server) — a uniffi

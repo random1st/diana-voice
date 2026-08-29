@@ -5,9 +5,9 @@ ears and a mouth.
 
 Diana Voice is a native macOS app that exposes two MCP tools, `voice_speak` and
 `voice_listen`, backed by fully local speech engines: Whisper Large v3 Turbo
-(STT, on Metal) and Qwen3-TTS (TTS with voice cloning). The default voice is
-**yours** — on first run the app asks you to record one reference phrase and
-speaks with that voice from then on.
+(STT, on Metal) and Qwen3-TTS (TTS with voice cloning). Diana speaks out of
+the box with her default voice; on first run you can optionally record one
+reference phrase to make her speak with **your** voice instead.
 
 The app has a presence: a floating avatar that changes mood between
 *listening / thinking / speaking*, plus a menu bar (tray) icon for settings and
@@ -125,8 +125,8 @@ frontmost app.
 On first launch the app walks you through:
 
 1. **Microphone permission** — required for `voice_listen` and push-to-talk.
-2. **Voice reference** — record one short phrase; Qwen3-TTS clones it and uses
-   it as the default speaking voice.
+2. **Voice** — Diana's voice works immediately; optionally record one short
+   phrase and Qwen3-TTS will clone yours instead.
 3. **Model download** — the Whisper Large v3 Turbo GGUF (~845 MB) and the
    Qwen3-TTS weights are downloaded on first run rather than bundled. After
    that, no network access is needed.
