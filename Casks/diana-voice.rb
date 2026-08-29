@@ -7,7 +7,7 @@ cask "diana-voice" do
   desc "Local push-to-talk voice layer: on-device STT/TTS with an MCP proxy"
   homepage "https://github.com/random1st/diana-voice"
 
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
   depends_on arch: :arm64
 
   app "Diana Voice.app"
