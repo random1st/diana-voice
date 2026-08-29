@@ -116,6 +116,31 @@ impl QwenTtsEngine {
             .map_err(|e| anyhow!("Qwen3-TTS synthesis failed: {e}"))
     }
 
+    /// Open a streaming synthesis session yielding ~800 ms audio chunks.
+    ///
+    /// The whole-utterance call returns nothing until the last frame is ready.
+    /// Streaming brings audio to the speaker while the tail of the utterance is
+    /// still generating — see voice-runtime's TtsManager for the playback side
+    /// (prebuffer + underrun guard) that consumes this iterator.
+    pub fn synthesize_streaming(&self, text: &str) -> Result<qwen3_tts::StreamingSession<'_>> {
+        use qwen3_tts::models::talker::Language;
+
+        let lang = if text.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c)) {
+            Language::Russian
+        } else {
+            Language::English
+        };
+
+        let options = qwen3_tts::SynthesisOptions {
+            seed: Some(42),
+            ..Default::default()
+        };
+
+        self.model
+            .synthesize_voice_clone_streaming(text, &self.voice_prompt, lang, options)
+            .map_err(|e| anyhow!("Qwen3-TTS synthesis failed: {e}"))
+    }
+
     /// Synthesize text and encode the result as in-memory 16-bit PCM mono WAV bytes.
     ///
     /// Convenience wrapper for callers that need raw WAV data (e.g. Swift via FFI).

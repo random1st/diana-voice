@@ -4,3 +4,4 @@ Cargo.lock.orig
 /swift/DianaVoice/.build
 /build
 *.dmg
+.s5d/.locks/
