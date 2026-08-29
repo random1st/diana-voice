@@ -43,7 +43,9 @@ cp "$PKG/Info.plist" "$APP/Contents/Info.plist"
 cp "$BIN_DIR/DianaVoice" "$APP/Contents/MacOS/DianaVoice"
 cp "$PROXY_BIN" "$APP/Contents/MacOS/diana-voice-mcp"
 
-# SwiftPM resources (Bundle.module) are resolved next to the executable.
+# SwiftPM resources: next to the executable (what dev builds use) AND in
+# Contents/Resources — the canonical location every resource-lookup variant
+# checks. Shipping it only in MacOS/ crashed first launch on another Mac.
 RES_BUNDLE="$APP/Contents/MacOS/DianaVoice_DianaVoice.bundle"
 if [ -d "$BIN_DIR/DianaVoice_DianaVoice.bundle" ]; then
     cp -R "$BIN_DIR/DianaVoice_DianaVoice.bundle" "$APP/Contents/MacOS/"
@@ -63,6 +65,8 @@ if [ -d "$BIN_DIR/DianaVoice_DianaVoice.bundle" ]; then
 </dict>
 </plist>
 PLIST
+    # Canonical-location copy (Contents/Resources) — see comment above.
+    cp -R "$RES_BUNDLE" "$APP/Contents/Resources/"
 fi
 
 if [ -f "$ICON" ]; then
@@ -90,9 +94,12 @@ TS=""
 [ "$IDENTITY" != "-" ] && TS="--timestamp"
 SIGN_FLAGS=(--force --options runtime ${TS:+"$TS"})
 
-# Inside-out: resource bundle, nested executables, then the app wrapper.
+# Inside-out: resource bundles (both copies), nested executables, then the
+# app wrapper.
 if [ -d "$RES_BUNDLE" ]; then
     codesign --force ${TS:+"$TS"} --sign "$IDENTITY" "$RES_BUNDLE"
+    codesign --force ${TS:+"$TS"} --sign "$IDENTITY" \
+        "$APP/Contents/Resources/DianaVoice_DianaVoice.bundle"
 fi
 codesign "${SIGN_FLAGS[@]}" \
     --entitlements "$PKG/DianaVoice.entitlements" \

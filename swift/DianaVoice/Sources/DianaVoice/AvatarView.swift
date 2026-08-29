@@ -66,9 +66,29 @@ let bubbleFontSizeDefault: CGFloat = 13
 /// (Roman's call); a user-picked image (tray → app-support avatar.png)
 /// always wins over it.
 enum AvatarImageResolver {
-    static let bundled: NSImage? = Bundle.module
-        .url(forResource: "diana", withExtension: "png")
-        .flatMap { NSImage(contentsOf: $0) }
+    /// Manual bundle lookup instead of `Bundle.module`: the generated
+    /// accessor calls fatalError when the resource bundle isn't where it
+    /// expects — which took the whole app down on first launch on another
+    /// Mac (reported 2026-08-29, "Bundle.module not found" in the .ips).
+    /// A cosmetic asset must never be able to kill the product: probe the
+    /// known locations, fall back to nil (gray circle) on any miss.
+    static let bundled: NSImage? = {
+        let candidates: [URL?] = [
+            Bundle.main.resourceURL,                                  // .app Contents/Resources
+            Bundle.main.executableURL?.deletingLastPathComponent(),   // .app Contents/MacOS, dev .build dir
+            Bundle.main.bundleURL,                                    // bare-executable runs
+        ]
+        for dir in candidates {
+            guard let url = dir?.appendingPathComponent("DianaVoice_DianaVoice.bundle"),
+                  let bundle = Bundle(url: url),
+                  let imageURL = bundle.url(forResource: "diana", withExtension: "png"),
+                  let image = NSImage(contentsOf: imageURL)
+            else { continue }
+            return image
+        }
+        NSLog("AvatarImageResolver: resource bundle not found — using gray circle")
+        return nil
+    }()
 
     static func current(override avatarOverride: NSImage?, customPath: String?) -> NSImage? {
         if let img = avatarOverride { return img }
