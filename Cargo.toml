@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/voice-engine", "crates/qwen3-tts", "crates/voice-runtime"]
+members = [
+    "crates/voice-engine",
+    "crates/qwen3-tts",
+    "crates/voice-runtime",
+    "crates/voice-ffi",
+]
 
 [workspace.package]
 version = "0.1.0"

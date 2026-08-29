@@ -6,3 +6,6 @@ Cargo.lock.orig
 *.dmg
 .s5d/.locks/
 crates/voice-mcp-proxy/target/
+crates/voice-ffi/VoiceFFI/voice_ffiFFI.xcframework/
+crates/voice-ffi/VoiceFFI/Sources/VoiceFFI/voice_ffi.swift
+crates/voice-ffi/generated/

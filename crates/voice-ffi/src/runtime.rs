@@ -1,0 +1,65 @@
+//! Boot the voice-runtime MCP server in-process (Diana Voice keystone).
+//!
+//! The native Swift app calls `start_runtime(port)` once on launch. The
+//! Tauri-free `voice-runtime` crate then serves the MCP server (voice_speak/
+//! voice_listen) on `port` from a background thread it owns — so the app is
+//! a single signed process with no separate daemon. `start_runtime` returns
+//! immediately; the service keeps running in the background.
+
+use std::fs;
+use std::path::Path;
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum FfiRuntimeError {
+    #[error("runtime start failed: {message}")]
+    Start { message: String },
+}
+
+/// Start Diana Voice's in-process runtime on `port`. Idempotent only insofar
+/// as the caller must not call it twice for the same port (the listener
+/// would clash).
+#[uniffi::export]
+pub fn start_runtime(port: u16) -> Result<(), FfiRuntimeError> {
+    // Log to a FILE, not stderr: a `.app` launched via `open` discards stderr, so
+    // env_logger's default stderr target left the whole runtime silent and
+    // undebuggable. Write to ~/Library/Application Support/DianaVoice/logs/runtime.log.
+    // The unconditional marker line also proves start_runtime ran even if the
+    // log facade is already taken by another crate (try_init would then no-op,
+    // leaving only the marker).
+    let dir = crate::app_support_dir();
+    let log_dir = dir.join("logs");
+    if fs::create_dir_all(&log_dir).is_ok() {
+        let log_path = log_dir.join("runtime.log");
+        let _ = fs::write(
+            &log_path,
+            format!(
+                "[start_runtime] called, port={port}, pid={}\n",
+                std::process::id()
+            ),
+        );
+        if let Ok(file) = fs::OpenOptions::new().append(true).open(&log_path) {
+            let _ = env_logger::Builder::new()
+                .filter_level(log::LevelFilter::Info)
+                .parse_default_env()
+                .target(env_logger::Target::Pipe(Box::new(file)))
+                .try_init();
+        }
+    }
+
+    let shared = voice_runtime::SharedState::new();
+    write_discovery(&dir, port).map_err(|e| FfiRuntimeError::Start {
+        message: format!("write discovery: {e:#}"),
+    })?;
+    voice_runtime::start_services(shared, port);
+    Ok(())
+}
+
+/// Write the discovery file the Swift app polls to learn which port the
+/// runtime bound to: `{app_support_dir}/runtime.json`. No vault token — this
+/// product is localhost-only, single-user, no auth.
+fn write_discovery(dir: &Path, port: u16) -> anyhow::Result<()> {
+    fs::create_dir_all(dir)?;
+    let json = serde_json::to_string_pretty(&serde_json::json!({ "port": port }))?;
+    fs::write(dir.join("runtime.json"), json)?;
+    Ok(())
+}

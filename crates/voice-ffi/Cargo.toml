@@ -1,0 +1,28 @@
+[package]
+name = "voice-ffi"
+description = "UniFFI bridge exposing Diana Voice's runtime to Swift"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib", "lib"]
+name = "voice_ffi"
+
+[dependencies]
+# "cli" enables uniffi_bindgen_main() for the src/bin/uniffi-bindgen.rs helper
+# (Swift binding generation in proc-macro `--library` mode). See scripts/regen-ffi.sh.
+uniffi = { version = "0.31", features = ["cli"] }
+voice-runtime = { path = "../voice-runtime" }
+anyhow.workspace = true
+dirs.workspace = true
+log.workspace = true
+serde_json.workspace = true
+# Surfaces the in-process runtime's logs to a file so the native single-process
+# app is observable — a `.app` launched via `open` discards stderr, leaving the
+# whole Rust runtime silent without this.
+env_logger = "0.11"
+thiserror = "1"
+
+[dev-dependencies]
