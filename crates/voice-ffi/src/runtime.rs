@@ -8,6 +8,7 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::{Arc, OnceLock};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum FfiRuntimeError {
@@ -47,11 +48,59 @@ pub fn start_runtime(port: u16) -> Result<(), FfiRuntimeError> {
     }
 
     let shared = voice_runtime::SharedState::new();
+    let _ = SHARED.set(shared.clone());
     write_discovery(&dir, port).map_err(|e| FfiRuntimeError::Start {
         message: format!("write discovery: {e:#}"),
     })?;
     voice_runtime::start_services(shared, port);
     Ok(())
+}
+
+/// The runtime state, kept so sync FFI entry points (push-to-talk
+/// transcription) can reach the resident engines without a second copy.
+static SHARED: OnceLock<Arc<voice_runtime::SharedState>> = OnceLock::new();
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum FfiVoiceError {
+    #[error("{message}")]
+    Voice { message: String },
+}
+
+/// Transcribe 16 kHz mono f32 samples with the resident STT engine — the
+/// push-to-talk path: Swift records while the key is held and hands the whole
+/// clip here on release. Same RMS-gate → transcribe → mojibake-repair →
+/// hallucination-strip pipeline as voice_listen; returns "" for silence.
+/// Blocking (seconds of Metal inference) — call from a background queue.
+#[uniffi::export]
+pub fn transcribe_samples(samples: Vec<f32>, language: String) -> Result<String, FfiVoiceError> {
+    let shared = SHARED
+        .get()
+        .ok_or_else(|| FfiVoiceError::Voice {
+            message: "runtime not started".into(),
+        })?
+        .clone();
+
+    // Tiny dedicated runtime: the manager API is async (tokio RwLock around
+    // the engine), but the actual work is synchronous Metal inference — a
+    // current-thread runtime per call is cheap next to it.
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .map_err(|e| FfiVoiceError::Voice {
+            message: format!("runtime: {e}"),
+        })?;
+    rt.block_on(async move {
+        let guard = shared.stt.read().await;
+        let stt = guard.clone().ok_or_else(|| FfiVoiceError::Voice {
+            message: "STT engine not ready yet".into(),
+        })?;
+        drop(guard);
+        stt.transcribe_samples(&samples, &language)
+            .await
+            .map_err(|e| FfiVoiceError::Voice {
+                message: format!("{e:#}"),
+            })
+    })
 }
 
 /// Write the discovery file the Swift app polls to learn which port the

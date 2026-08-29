@@ -5070,6 +5070,7 @@ dependencies = [
  "log",
  "serde_json",
  "thiserror 1.0.69",
+ "tokio",
  "uniffi",
  "voice-runtime",
 ]

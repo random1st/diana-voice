@@ -11,6 +11,7 @@ crate-type = ["cdylib", "staticlib", "lib"]
 name = "voice_ffi"
 
 [dependencies]
+tokio = { version = "1", features = ["rt", "time"] }
 # "cli" enables uniffi_bindgen_main() for the src/bin/uniffi-bindgen.rs helper
 # (Swift binding generation in proc-macro `--library` mode). See scripts/regen-ffi.sh.
 uniffi = { version = "0.31", features = ["cli"] }

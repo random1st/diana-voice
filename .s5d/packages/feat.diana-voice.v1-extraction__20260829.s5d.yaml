@@ -236,3 +236,6 @@ auto_noted: false
 # M5:
 #   crates/voice-mcp-proxy/Cargo.toml
 #   crates/voice-mcp-proxy/src/main.rs
+# M4.5 (PTT):
+#   swift/DianaVoice/Sources/DianaVoice/PushToTalk.swift
+#   swift/DianaVoice/Tests/DianaVoiceTests/PushToTalkTests.swift
