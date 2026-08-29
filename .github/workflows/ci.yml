@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # CMake 4.x dropped the implicit pre-4 policy default; libsamplerate-sys /
+  # transcribe-cpp-sys have no cmake_minimum_required and fail without this.
+  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    runs-on: macos-14 # arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (pinned by rust-toolchain.toml)
+        # rustup reads rust-toolchain.toml from the repo root; no-arg install
+        # picks up the pinned channel (1.96.1) including clippy.
+        run: rustup toolchain install
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            rust-${{ runner.os }}-
+
+      - name: cargo check
+        run: cargo check --workspace
+
+      - name: cargo test
+        # Tests needing the 845MB model or a microphone are gated in-code and
+        # do not run in CI.
+        run: cargo test --workspace
+
+      - name: cargo build voice-mcp-proxy (release)
+        run: cargo build --release --manifest-path crates/voice-mcp-proxy/Cargo.toml
+
+      - name: cargo clippy
+        # -D warnings verified passing locally on the pinned toolchain.
+        run: cargo clippy --workspace -- -D warnings
+
+  swift:
+    runs-on: macos-14 # arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (pinned by rust-toolchain.toml)
+        run: rustup toolchain install
+
+      - name: Cache cargo registry + target
+        # regen-ffi.sh does a release build of voice-ffi (slow); cache it.
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: swift-ffi-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            swift-ffi-${{ runner.os }}-
+
+      - name: Regenerate voice-ffi xcframework
+        run: ./scripts/regen-ffi.sh
+
+      - name: swift build
+        working-directory: swift/DianaVoice
+        run: swift build
+
+      - name: swift test
+        # Tests needing the 845MB model or a microphone are gated and skip in CI.
+        working-directory: swift/DianaVoice
+        run: swift test

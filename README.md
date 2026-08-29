@@ -1,42 +1,158 @@
 # Diana Voice
 
-Голос как MCP-сервер для macOS. Скачал, поставил, подключил — у агента появились
-уши и рот.
+Voice as an MCP server for macOS. Download, install, connect — your agent gets
+ears and a mouth.
 
-**Статус: в разработке.** Задание — [BRIEF.md](BRIEF.md). Готово: движки
-перенесены (STT/TTS, паритет со стендом подтверждён), headless MCP-сервер
-отвечает на `voice_speak`/`voice_listen` (гейт `scripts/mcp-curl-gate.sh`).
-В работе: Swift-приложение с аватаром и треем, затем онбординг, нотаризация,
-`.dmg` и Homebrew cask.
+Diana Voice is a native macOS app that exposes two MCP tools, `voice_speak` and
+`voice_listen`, backed by fully local speech engines: Whisper Large v3 Turbo
+(STT, on Metal) and Qwen3-TTS (TTS with voice cloning). The default voice is
+**yours** — on first run the app asks you to record one reference phrase and
+speaks with that voice from then on.
 
+The app has a presence: a floating avatar that changes mood between
+*listening / thinking / speaking*, plus a menu bar (tray) icon for settings and
+push-to-talk configuration.
+
+Everything runs locally. No audio, text, or telemetry ever leaves your machine.
+
+The (Russian-language) design document is [BRIEF.md](BRIEF.md).
+
+## Install
+
+1. Download the latest `.dmg` from
+   [GitHub Releases](../../releases).
+2. Open it and drag **Diana Voice** to `/Applications`.
+3. Launch it once so the first-run setup can complete (see below).
+
+```sh
+brew install --cask diana-voice   # coming soon
 ```
-voice_speak   — синтез речи, произносит вслух
-voice_listen  — слушает микрофон, возвращает текст
+
+## Connect your agent
+
+### Claude Code
+
+```sh
+claude mcp add diana-voice -- "/Applications/Diana Voice.app/Contents/MacOS/diana-voice-mcp"
 ```
 
-Приложение с присутствием: плавающий аватар, который меняет настроение на
-«слушаю / думаю / говорю», и иконка в трее. Внутри — то, что уже работает в
-большой Diana: Whisper Large v3 Turbo на Metal (русский 3.31% WER, смешанная
-ru-en речь 24.31%, p50 ~240 мс) и Qwen3-TTS с клонированием голоса. Всё
-локально, без облака.
+### Cursor
 
-Голос по умолчанию — твой: на первом запуске приложение просит надиктовать одну
-фразу и дальше говорит ею.
+Add to `~/.cursor/mcp.json`:
 
-## Состояние гейтов
+```json
+{
+  "mcpServers": {
+    "diana-voice": {
+      "command": "/Applications/Diana Voice.app/Contents/MacOS/diana-voice-mcp"
+    }
+  }
+}
+```
 
-Лицензии — **закрыты**, все зависимости permissive (MIT / Apache-2.0). Одна
-оговорка по версии Silero VAD — см. §7 брифа.
+### Codex
 
-Форма приложения и транспорт — **решены**: подписанное `.app` с рантаймом внутри
-процесса, по скелету большой Diana. Вопрос TCC отпал вместе с этим.
+Add to `~/.codex/config.toml`:
 
-Открытыми остаются распространение и публичность репозитория — §11 брифа.
+```toml
+[mcp_servers.diana-voice]
+command = "/Applications/Diana Voice.app/Contents/MacOS/diana-voice-mcp"
+```
 
-## Порядок чтения
+### Any other MCP client
 
-1. **§3 Форма приложения** — какие восемь файлов Diana копируем и три свойства
-   аватара, которые нельзя потерять
-2. **§4.4 Захват микрофона** — единственное место, где нельзя брать
-   существующий код как есть
-3. **§9 Что считаем готовым** — критерии приёмки v1
+- **stdio:** run `/Applications/Diana Voice.app/Contents/MacOS/diana-voice-mcp`
+  as the server command. The proxy bridges stdio to the app's HTTP server and
+  auto-launches the app if it isn't running yet.
+- **HTTP (direct):** `POST http://127.0.0.1:4525/mcp` (Streamable HTTP; the
+  port can be overridden with `DIANA_VOICE_PORT`).
+
+## Tools
+
+### `voice_speak`
+
+Speak text aloud using Diana's local voice-cloned TTS (Qwen3-TTS). Send plain
+text for automatic prosody.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string",
+      "description": "Plain text to speak."
+    }
+  },
+  "required": ["text"],
+  "additionalProperties": false
+}
+```
+
+### `voice_listen`
+
+Activate microphone, record speech, and transcribe. Returns transcribed text.
+Interrupts any ongoing speech.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "timeout_sec": {
+      "type": "integer",
+      "description": "Max seconds to listen (default: 30)"
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+## Push-to-talk
+
+Hold **Fn** to talk (default); release to send. The key can be changed from
+the tray menu. Push-to-talk requires the **Accessibility** permission
+(System Settings → Privacy & Security → Accessibility) — macOS needs it both
+to monitor the Fn key globally and to paste the transcribed text into the
+frontmost app.
+
+## First run
+
+On first launch the app walks you through:
+
+1. **Microphone permission** — required for `voice_listen` and push-to-talk.
+2. **Voice reference** — record one short phrase; Qwen3-TTS clones it and uses
+   it as the default speaking voice.
+3. **Model download** — the Whisper Large v3 Turbo GGUF (~845 MB) and the
+   Qwen3-TTS weights are downloaded on first run rather than bundled. After
+   that, no network access is needed.
+
+## Privacy and consent
+
+Speech recognition is powered by OpenAI's Whisper. Per the
+[Whisper model card](https://github.com/openai/whisper/blob/main/model-card.md):
+
+- **Do not transcribe recordings of people without their consent.**
+- Do not use transcriptions for high-risk decisions (e.g. subjective
+  classification of individuals or decision-making contexts).
+
+Diana Voice processes all audio on-device. Nothing is uploaded anywhere; the
+models run locally and the only network activity is the one-time weights
+download.
+
+## Build from source
+
+The Rust toolchain is pinned in `rust-toolchain.toml` (rustup picks it up
+automatically). Apple Silicon only.
+
+```sh
+export CMAKE_POLICY_VERSION_MINIMUM=3.5   # scripts set this themselves too
+scripts/regen-ffi.sh   # build the voice-ffi Swift xcframework
+scripts/dev-run.sh     # build and run the app
+```
+
+`scripts/dev-run.sh` is the canonical dev entry point — it rebuilds the FFI
+xcframework when missing and applies the required build workarounds.
+
+## License
+
+[Apache-2.0](LICENSE). Third-party components are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
