@@ -65,14 +65,6 @@ if [ -d "$BIN_DIR/DianaVoice_DianaVoice.bundle" ]; then
 PLIST
 fi
 
-# Public/clean build: ship nothing personal. Strip the bundled avatar image so
-# the app falls back to the neutral placeholder. The signing identity in the
-# signature is unaffected (that is the developer's Apple cert).
-if [ "${DIANA_PUBLIC_BUILD:-0}" = "1" ] && [ -d "$RES_BUNDLE" ]; then
-    rm -f "$RES_BUNDLE/diana.png"
-    echo "  public build: stripped personal avatar -> neutral fallback"
-fi
-
 if [ -f "$ICON" ]; then
     cp "$ICON" "$APP/Contents/Resources/icon.icns"
 else

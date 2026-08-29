@@ -13,10 +13,13 @@ let package = Package(
             dependencies: [
                 .product(name: "VoiceFFI", package: "VoiceFFI")
             ],
-            // No bundled resources: the avatar photo was a personal asset and
-            // must not ship in a public repo/build — the user sets their own
-            // via the tray ("Choose Avatar Image…" → app-support avatar.png),
-            // and the default is the neutral gray circle.
+            resources: [
+                // Diana's face — the product's public default avatar (Roman's
+                // call, 2026-08-29: «нормальное лицо»). Users replace it via
+                // the tray ("Choose Avatar Image…" → app-support avatar.png),
+                // which takes priority over this bundled default.
+                .copy("Resources/diana.png")
+            ],
             // VoiceFFI's static lib embeds the whole voice-runtime (STT/TTS
             // engines on Candle+Metal, VAD, MCP/HTTP server) — a uniffi
             // staticlib does not propagate cargo's `#[link]` /

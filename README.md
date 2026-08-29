@@ -19,14 +19,20 @@ The (Russian-language) design document is [BRIEF.md](BRIEF.md).
 
 ## Install
 
+Homebrew:
+
+```sh
+brew install --cask random1st/diana-voice/diana-voice
+```
+
+(If Homebrew asks you to trust the tap first: `brew trust random1st/diana-voice`.)
+
+Or manually:
+
 1. Download the latest `.dmg` from
    [GitHub Releases](../../releases).
 2. Open it and drag **Diana Voice** to `/Applications`.
 3. Launch it once so the first-run setup can complete (see below).
-
-```sh
-brew install --cask diana-voice   # coming soon
-```
 
 ## Connect your agent
 
