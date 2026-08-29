@@ -103,6 +103,29 @@ pub fn transcribe_samples(samples: Vec<f32>, language: String) -> Result<String,
     })
 }
 
+/// Download the Whisper STT model (~845 MB) if absent. Resumes a partial
+/// file. Blocking for the whole download — call from a background queue;
+/// Swift shows progress by polling the `.part` file size next to the
+/// destination (no callback plumbing needed for a single known-size file).
+#[uniffi::export]
+pub fn download_stt_model() -> Result<(), FfiVoiceError> {
+    voice_engine::stt::download_model().map_err(|e| FfiVoiceError::Voice {
+        message: format!("{e:#}"),
+    })
+}
+
+/// Download/resolve the Qwen3-TTS weights (three HF repos) if absent.
+/// Blocking; idempotent when cached. No size-based progress — the HF cache
+/// layout is opaque to Swift, so the UI shows an indeterminate spinner.
+#[uniffi::export]
+pub fn ensure_tts_model() -> Result<(), FfiVoiceError> {
+    voice_engine::tts::QwenTtsEngine::ensure_model_downloaded().map_err(|e| {
+        FfiVoiceError::Voice {
+            message: format!("{e:#}"),
+        }
+    })
+}
+
 /// Write the discovery file the Swift app polls to learn which port the
 /// runtime bound to: `{app_support_dir}/runtime.json`. No vault token — this
 /// product is localhost-only, single-user, no auth.

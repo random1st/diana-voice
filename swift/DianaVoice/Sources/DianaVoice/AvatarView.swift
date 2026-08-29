@@ -1,4 +1,5 @@
 import SwiftUI
+import VoiceFFI
 
 // MARK: - Mood
 
@@ -190,15 +191,43 @@ private struct SpeechBubble: View {
     }
 }
 
+// MARK: - AvatarPrefs (user-chosen avatar image)
+
+/// The user's custom avatar: `avatar.png` in app support, set from the tray
+/// ("Choose Avatar Image…"). Cached as an NSImage so the live overlay never
+/// reads disk per render (the resolver comment's custom↔circle flip burst);
+/// `reload()` is the only disk touch, called after the file changes.
+@MainActor
+final class AvatarPrefs: ObservableObject {
+    static let shared = AvatarPrefs()
+
+    @Published private(set) var customImage: NSImage?
+
+    static var customPath: String { dataDirPath() + "/avatar.png" }
+
+    private init() {
+        reload()
+    }
+
+    func reload() {
+        customImage = FileManager.default.fileExists(atPath: Self.customPath)
+            ? NSImage(contentsOfFile: Self.customPath)
+            : nil
+    }
+}
+
 // MARK: - Live overlay wrapper (observes the runtime SSE stream)
 
 struct AvatarOverlayView: View {
     @ObservedObject var client: SSEClient
+    @ObservedObject var prefs = AvatarPrefs.shared
 
     var body: some View {
         AvatarView(
             mood: client.mood,
-            speech: client.speech
+            speech: client.speech,
+            // nil falls through to the resolver (bundled diana.png → circle).
+            resolvedImage: prefs.customImage
         )
     }
 }

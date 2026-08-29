@@ -16,6 +16,9 @@ tokio = { version = "1", features = ["rt", "time"] }
 # (Swift binding generation in proc-macro `--library` mode). See scripts/regen-ffi.sh.
 uniffi = { version = "0.31", features = ["cli"] }
 voice-runtime = { path = "../voice-runtime" }
+# Direct dependency for the onboarding downloads (download_stt_model /
+# ensure_tts_model) — the engines are voice-engine's, not the runtime's.
+voice-engine = { path = "../voice-engine" }
 anyhow.workspace = true
 dirs.workspace = true
 log.workspace = true

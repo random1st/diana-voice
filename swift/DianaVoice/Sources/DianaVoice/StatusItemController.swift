@@ -1,5 +1,6 @@
 import AppKit
 import CoreAudio
+import UniformTypeIdentifiers
 
 // MARK: - StatusItemController
 
@@ -29,6 +30,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// Fired when the user picks a different push-to-talk binding from the
     /// tray submenu; AppDelegate wires this to `PushToTalkController.setBinding`.
     var onPttBindingChange: ((PttBinding) -> Void)?
+
+    /// Opens the first-run setup window (also the way to re-record the voice
+    /// reference later); AppDelegate wires this to `OnboardingController.show`.
+    var onOpenSetup: (() -> Void)?
 
     override init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -123,6 +128,30 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(configItem)
 
         menu.addItem(NSMenuItem.separator())
+
+        let setupItem = NSMenuItem(
+            title: "Setup Assistant…",
+            action: #selector(openSetup),
+            keyEquivalent: ""
+        )
+        setupItem.target = self
+        menu.addItem(setupItem)
+
+        let avatarItem = NSMenuItem(
+            title: "Choose Avatar Image…",
+            action: #selector(chooseAvatar),
+            keyEquivalent: ""
+        )
+        avatarItem.target = self
+        menu.addItem(avatarItem)
+
+        let resetAvatarItem = NSMenuItem(
+            title: "Reset Avatar",
+            action: #selector(resetAvatar),
+            keyEquivalent: ""
+        )
+        resetAvatarItem.target = self
+        menu.addItem(resetAvatarItem)
 
         let quitItem = NSMenuItem(title: "Quit Diana Voice", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
@@ -277,6 +306,57 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         pb.clearContents()
         pb.setString(text, forType: .string)
         onFeedback?(feedback)
+    }
+
+    @objc private func openSetup() {
+        onOpenSetup?()
+    }
+
+    // MARK: - Avatar image
+
+    @objc private func chooseAvatar() {
+        // Accessory-policy app: the panel opens behind everything unless the
+        // app is activated first.
+        NSApp.activate(ignoringOtherApps: true)
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .heic, .tiff]
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a picture for the floating avatar"
+        let feedback = onFeedback
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in
+                do {
+                    let data = try Data(contentsOf: url)
+                    // Validate before overwriting — a broken file must not
+                    // wedge the overlay into the gray circle silently.
+                    guard NSImage(data: data) != nil else {
+                        feedback?("That file is not a readable image")
+                        return
+                    }
+                    let dest = AvatarPrefs.customPath
+                    try FileManager.default.createDirectory(
+                        atPath: (dest as NSString).deletingLastPathComponent,
+                        withIntermediateDirectories: true)
+                    try data.write(to: URL(fileURLWithPath: dest))
+                    AvatarPrefs.shared.reload()
+                    feedback?("Avatar updated")
+                } catch {
+                    feedback?("Could not set avatar: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    @objc private func resetAvatar() {
+        let feedback = onFeedback
+        // Menu actions do run on the main thread, but this class isn't
+        // @MainActor — hop explicitly to satisfy AvatarPrefs' isolation.
+        Task { @MainActor in
+            try? FileManager.default.removeItem(atPath: AvatarPrefs.customPath)
+            AvatarPrefs.shared.reload()
+            feedback?("Avatar reset to default")
+        }
     }
 
     @objc private func quit() {

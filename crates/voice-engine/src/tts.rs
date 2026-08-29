@@ -95,6 +95,16 @@ impl QwenTtsEngine {
         Self::with_model(model)
     }
 
+    /// Resolve (and if absent, download) all three Qwen3-TTS repos without
+    /// loading the model — the onboarding "download models" step, so first
+    /// `voice_speak` pays only the load, not a multi-GB fetch. Idempotent:
+    /// cached files are not re-fetched.
+    pub fn ensure_model_downloaded() -> Result<()> {
+        qwen3_tts::ModelPaths::download(None)
+            .map(|_| ())
+            .map_err(|e| anyhow!("Qwen3-TTS download failed: {e}"))
+    }
+
     /// Synthesize text, returning an AudioBuffer (24kHz mono f32).
     pub fn synthesize(&self, text: &str) -> Result<qwen3_tts::AudioBuffer> {
         use qwen3_tts::models::talker::Language;

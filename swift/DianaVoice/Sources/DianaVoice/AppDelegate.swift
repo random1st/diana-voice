@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController?
     private var hostingView: ClickThroughHostingView<AvatarOverlayView>?
     private var pushToTalk: PushToTalkController?
+    private var onboarding: OnboardingController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let url = URL(string: "http://127.0.0.1:\(voicePort)/ui-events") else {
@@ -68,6 +69,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ptt.onFeedback = feedback
         tray.onPttBindingChange = { [weak ptt] binding in ptt?.setBinding(binding) }
         self.pushToTalk = ptt
+
+        // First-run setup: mic permission → voice reference → model download.
+        // Auto-shown while incomplete; reopenable from the tray to re-record
+        // the voice reference.
+        let onboarding = OnboardingController()
+        self.onboarding = onboarding
+        tray.onOpenSetup = { [weak onboarding] in onboarding?.show() }
+        if !OnboardingController.isSetupComplete() {
+            onboarding.show()
+        }
     }
 
     // MARK: - Native capture (voice_listen)
