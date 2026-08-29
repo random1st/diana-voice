@@ -1,7 +1,6 @@
 cask "diana-voice" do
   version "0.1.0"
-  # TODO: pin the real sha256 of the DMG at release time (shasum -a 256 DianaVoice-<version>.dmg).
-  sha256 :no_check
+  sha256 "d8379e3c67d96601346ce7bda141623a3ecfd365a6138769e1112e884ea6cd4d"
 
   url "https://github.com/random1st/diana-voice/releases/download/v#{version}/DianaVoice-#{version}.dmg"
   name "Diana Voice"
