@@ -29,8 +29,7 @@ final class OnboardingController {
 
     func show() {
         if let window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            Self.bringToFront(window)
             return
         }
         let model = OnboardingModel()
@@ -41,16 +40,26 @@ final class OnboardingController {
         window.styleMask = [.titled, .closable]
         window.setContentSize(NSSize(width: 480, height: 420))
         window.center()
-        // The app is accessory-policy (no Dock icon), so the window must be
-        // explicitly activated or it opens behind everything.
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
         window.isReleasedWhenClosed = false
+        Self.bringToFront(window)
         self.window = window
         self.model = model
         model.onFinished = { [weak self] in
             self?.window?.close()
         }
+    }
+
+    /// Accessory apps (no Dock icon) may not steal focus on modern macOS —
+    /// `NSApp.activate(ignoringOtherApps:)` is soft-deprecated since 14 and
+    /// commonly refused, which left the setup window BEHIND everything on a
+    /// fresh install ("nothing happened" on first launch). A floating level +
+    /// orderFrontRegardless puts it on screen without needing activation to
+    /// be granted; the activate call still runs so typing works when allowed.
+    private static func bringToFront(_ window: NSWindow) {
+        window.level = .floating
+        window.orderFrontRegardless()
+        window.makeKey()
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
