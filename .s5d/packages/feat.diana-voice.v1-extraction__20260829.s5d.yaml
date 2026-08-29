@@ -233,3 +233,6 @@ auto_noted: false
 #   swift/DianaVoice/Tests/DianaVoiceTests/AudioCaptureTests.swift
 #   swift/DianaVoice/packaging/Info.plist
 #   swift/DianaVoice/packaging/DianaVoice.entitlements
+# M5:
+#   crates/voice-mcp-proxy/Cargo.toml
+#   crates/voice-mcp-proxy/src/main.rs

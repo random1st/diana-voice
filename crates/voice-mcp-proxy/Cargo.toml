@@ -1,0 +1,19 @@
+[package]
+name = "voice-mcp-proxy"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "stdio to HTTP bridge: one-line MCP config for clients that spawn a command"
+
+# Standalone while M3 agents own the root workspace manifest; folded into the
+# workspace after integration (drop this empty table + add to members).
+[workspace]
+
+[dependencies]
+ureq = "2"
+serde_json = "1"
+dirs = "5"
+
+[[bin]]
+name = "diana-voice-mcp"
+path = "src/main.rs"
