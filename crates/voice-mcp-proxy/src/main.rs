@@ -164,6 +164,7 @@ fn main() {
     let out_lock: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
 
     let stdin = std::io::stdin();
+    let mut in_flight = Vec::new();
     for line in stdin.lock().lines() {
         let line = match line {
             Ok(l) => l,
@@ -182,7 +183,14 @@ fn main() {
         // Clients correlate responses by id, so completion order is free.
         let bridge = bridge.clone();
         let out_lock = out_lock.clone();
-        std::thread::spawn(move || forward_line(&bridge, &line, &out_lock));
+        in_flight.push(std::thread::spawn(move || forward_line(&bridge, &line, &out_lock)));
+        in_flight.retain(|h| !h.is_finished());
+    }
+
+    // Stdin closed (client shutdown): drain in-flight requests before exiting,
+    // or their responses die with the process.
+    for handle in in_flight {
+        let _ = handle.join();
     }
 }
 
