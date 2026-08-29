@@ -1,0 +1,14 @@
+product: diana-voice
+total_modules: 1
+governed: 1
+partial: 0
+blind: 0
+modules:
+- module:
+    name: crates
+    path: crates
+    language: Mixed
+    file_count: 75
+  status: governed
+  specs:
+  - feat.diana-voice.v1-extraction

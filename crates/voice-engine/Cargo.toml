@@ -3,8 +3,25 @@ name = "voice-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+description = "Voice engines (STT + TTS) for Diana Voice: Whisper on ggml/Metal, Qwen3-TTS on candle"
 
-# M0 stub: pins the transcribe-cpp dependency so the [patch.crates-io]
-# override is resolvable from a fresh clone. Real engine lands in M1.
 [dependencies]
+qwen3-tts = { path = "../qwen3-tts", features = ["metal", "accelerate", "hub"] }
+candle-core = { version = "0.9", features = ["metal", "accelerate"] }
+# One STT engine: GGUF on ggml/Metal. Replaced transcribe-rs (ONNX/CPU) and the
+# mlx_whisper Python subprocess — see decision.diana.stt-single-engine-whisper-turbo.
 transcribe-cpp = { version = "0.2.0", default-features = false, features = ["metal"] }
+hound = "3.5"
+anyhow.workspace = true
+dirs.workspace = true
+log.workspace = true
+serde = { version = "1", features = ["derive"] }
+reqwest = { workspace = true, features = ["multipart", "blocking"] }
+flate2 = "1"
+tar = "0.4"
+tempfile.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+env_logger = "0.11"
