@@ -5,3 +5,4 @@ Cargo.lock.orig
 /build
 *.dmg
 .s5d/.locks/
+crates/voice-mcp-proxy/target/
