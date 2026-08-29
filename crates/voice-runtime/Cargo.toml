@@ -1,0 +1,39 @@
+[package]
+name = "voice-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Thin MCP server + voice managers for Diana Voice: voice_speak / voice_listen over JSON-RPC/HTTP+SSE"
+
+[dependencies]
+voice-engine = { path = "../voice-engine" }
+
+# HTTP / async — versions mirror the donor daemon (diana-runtime) so ported
+# server.rs code needs no API-shape changes.
+axum = "0.8"
+tokio = { workspace = true }
+tokio-stream = "0.1"
+futures-util = "0.3"
+uuid = { version = "1", features = ["v4"] }
+async-trait = "0.1"
+
+# Audio playback (TTS) — rodio drives the speaker; VAD (Silero v5) runs
+# directly on ort, no vad-rs wrapper (see voice/vad.rs for why).
+rodio = "0.20"
+hound = "3.5"
+ort = "=2.0.0-rc.10"
+sha2 = "0.10"
+
+anyhow.workspace = true
+log.workspace = true
+dirs.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+reqwest = { workspace = true, features = ["blocking"] }
+tempfile.workspace = true
+
+# bin/serve.rs — the headless runner needs a logger, not just tests.
+env_logger = "0.11"
+
+[dev-dependencies]

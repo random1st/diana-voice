@@ -1,0 +1,100 @@
+revision: 20
+spec_ref: feat.diana-voice.v1-extraction__20260829.s5d.yaml
+spec_sha256: sha256:e692c8020cca8aa787f10276a77cac68ade958c4c31f6625916eefc66eb177ca
+status: approved
+sync_status: unknown
+status_history:
+- status: proposed
+  timestamp: 2026-08-29T07:01:10.350717+00:00
+- status: previewed
+  timestamp: 2026-08-29T07:50:29.449806+00:00
+- status: previewed
+  timestamp: 2026-08-29T08:02:21.960949+00:00
+- status: approved
+  timestamp: 2026-08-29T08:02:21.984239+00:00
+- status: previewed
+  timestamp: 2026-08-29T08:04:07.051285+00:00
+- status: approved
+  timestamp: 2026-08-29T08:04:07.073638+00:00
+- status: previewed
+  timestamp: 2026-08-29T08:50:38.471098+00:00
+- status: approved
+  timestamp: 2026-08-29T08:50:38.489880+00:00
+- status: previewed
+  timestamp: 2026-08-29T09:37:18.777892+00:00
+- status: approved
+  timestamp: 2026-08-29T09:37:18.813630+00:00
+- status: previewed
+  timestamp: 2026-08-29T09:39:46.056892+00:00
+- status: approved
+  timestamp: 2026-08-29T09:39:46.091311+00:00
+- status: previewed
+  timestamp: 2026-08-29T09:56:37.369190+00:00
+- status: approved
+  timestamp: 2026-08-29T09:56:37.403772+00:00
+- status: previewed
+  timestamp: 2026-08-29T10:03:19.999517+00:00
+- status: approved
+  timestamp: 2026-08-29T10:03:20.029971+00:00
+- status: previewed
+  timestamp: 2026-08-29T10:05:51.710677+00:00
+- status: approved
+  timestamp: 2026-08-29T10:05:51.733483+00:00
+- status: previewed
+  timestamp: 2026-08-29T10:18:26.211249+00:00
+- status: approved
+  timestamp: 2026-08-29T10:18:26.240764+00:00
+active_phase: null
+phase_history: []
+phase_runs: []
+approvals:
+- reviewer: Roman Voronin
+  date: 2026-08-29T08:02:21.984238+00:00
+  spec_sha256: sha256:78860550296f21c48dc0f280372708236e8928275c7835afa363433b2c1a5af9
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-29T08:04:07.073636+00:00
+  spec_sha256: sha256:4d0015fd41305a107bdc668cfebaea25694b46320d9f8ce7b44a2d39d38040f5
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-29T08:50:38.489878+00:00
+  spec_sha256: sha256:4d0015fd41305a107bdc668cfebaea25694b46320d9f8ce7b44a2d39d38040f5
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-29T09:37:18.813628+00:00
+  spec_sha256: sha256:8cdcdff10d108cb64aeaa323175137a1121d41a4657b198e0bb2c42cdd65c798
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-29T09:39:46.091310+00:00
+  spec_sha256: sha256:7c4eb26b6450ec1b48a7f2802152929e868cdd7240f9007b443db15802ab38ec
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-29T09:56:37.403770+00:00
+  spec_sha256: sha256:7c4eb26b6450ec1b48a7f2802152929e868cdd7240f9007b443db15802ab38ec
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-29T10:03:20.029967+00:00
+  spec_sha256: sha256:7c4eb26b6450ec1b48a7f2802152929e868cdd7240f9007b443db15802ab38ec
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-29T10:05:51.733481+00:00
+  spec_sha256: sha256:481e66a7668b7db159fd66188486340574e1fb0ea0c4eb49205506a3375cc9d6
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-29T10:18:26.240762+00:00
+  spec_sha256: sha256:e692c8020cca8aa787f10276a77cac68ade958c4c31f6625916eefc66eb177ca
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+preview:
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+  previewed_spec_sha256: sha256:e692c8020cca8aa787f10276a77cac68ade958c4c31f6625916eefc66eb177ca
+  actions:
+    create: 7
+    link: 3
+    update: 0
+    delete: 0
+  log: null
+reflection: null
+gate_results: []
+decision: null
+verified_by: null
+drift_tolerance: null

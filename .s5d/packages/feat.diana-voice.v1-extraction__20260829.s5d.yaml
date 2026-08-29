@@ -1,0 +1,250 @@
+s5d: '1.0'
+id: feat.diana-voice.v1-extraction
+version: 1.0.0
+product: diana-voice
+tier: standard
+allow_update: true
+meta:
+  title: v1-extraction
+  authors: []
+  date: 2026-08-29
+  tickets: []
+  adrs: []
+  renames: []
+context: |
+  ## Problem
+
+  ## Goal
+
+  ## Privacy
+  Classification: Internal
+workflow:
+  mode: plan
+  target_architecture:
+    summary: Describe the steady-state design this change should reach
+    invariants: []
+  delivery_strategy:
+    summary: Describe how this change moves current code toward the target architecture
+    rationale: null
+  resources: null
+  role_map:
+    reviewer: reviewer
+    owner: human
+    implementer: coder
+    verifier: reviewer
+  review_policy:
+    cross_model_required: false
+    required_on: []
+  structure_outline: null
+  execution_mode:
+    engine: manual
+    max_iterations: null
+    stop_conditions:
+    - Phase acceptance reached
+    - Approved scope exhausted
+    - New decision required
+  phases:
+  - id: prototype
+    title: Prototype
+    scope: Reduce unknowns before committed implementation
+    roles:
+    - owner
+    - implementer
+    acceptance:
+    - Critical feasibility questions answered
+    - Telemetry approach identified
+    rollback:
+    - Discard spike output if assumptions fail
+  - id: build
+    title: Build
+    scope: Implement approved scope and pass local gates
+    roles:
+    - implementer
+    - reviewer
+    acceptance:
+    - Declared gates pass
+    - Change matches approved scope
+    rollback:
+    - Revert or reconcile if gates or review fail
+  - id: measure
+    title: Measure
+    scope: Collect telemetry and close the loop with an explicit verdict
+    roles:
+    - owner
+    - verifier
+    acceptance:
+    - Telemetry collected against success criteria
+    - Outcome verdict recorded
+    rollback:
+    - Iterate or kill if evidence stays weak
+artifacts:
+  products:
+  - id: diana-voice
+    name: diana-voice
+    organization: null
+  domains:
+  - id: dom.diana-voice.core
+    product: diana-voice
+    name: diana-voice core domain
+    classification: supporting
+    description: Scaffold default — rename or split into real bounded contexts
+    team: null
+    maturity_level: null
+    product_criticality: null
+    owner: null
+  capabilities:
+  - id: cap.v1-extraction
+    domain: dom.diana-voice.core
+    name: v1 extraction
+    description: null
+    since: null
+  entities: []
+  features:
+  - id: feat.diana-voice.v1-extraction
+    product: diana-voice
+    name: v1-extraction
+    description: null
+  use_cases: []
+  systems:
+  - id: sys.diana-voice
+    product: diana-voice
+    name: diana-voice
+  containers:
+  - id: ctr.diana-voice.app
+    system: sys.diana-voice
+    name: diana-voice app
+    technology: null
+  components:
+  - id: comp.v1-extraction
+    feature: feat.diana-voice.v1-extraction
+    domain: dom.diana-voice.core
+    container: ctr.diana-voice.app
+    name: v1 extraction component
+    paths:
+    - crates/
+    - vendor/
+    product_criticality: null
+    owner: null
+  roles: []
+  concerns: []
+  metrics: []
+  supersystems: []
+  transports: []
+links:
+  feature_to_domain:
+  - feature: feat.diana-voice.v1-extraction
+    domain: dom.diana-voice.core
+  use_case_to_capability: []
+  use_case_to_entity: []
+  component_to_capability:
+  - capability: cap.v1-extraction
+    component: comp.v1-extraction
+  component_to_entity: []
+  container_to_capability: []
+  concern_to_metric: []
+  component_to_container: []
+  edges: []
+  depends_on: []
+  entity_relations: []
+  capability_to_entity: []
+  capability_to_concern: []
+contracts: []
+gates:
+- kind: schema
+- kind: graph
+roc: null
+problem:
+  signal: 'Голосовой слой (STT 3.31% WER, TTS RTF 0.964) заперт внутри большой Diana; полезен любому MCP-клиенту. Бриф: ~/src/diana-voice/BRIEF.md, план: ~/.claude/plans/effervescent-painting-twilight.md (M0-M9)'
+  constraints:
+  - движки переносятся без переписывания (решение по STT закрыто decision record); захват микрофона только AVAudioEngine
+  - не cpal; модели качаются при первом запуске
+  - не в бандле; лицензия Apache-2.0
+  - все зависимости permissive; референс голоса — запись пользователя
+  - личный wav не едет
+  targets:
+  - минимум нового кода (копия>порт>переписывание)
+  - время до первого звука
+  - WER-паритет со стендом stt-lab
+  indicators: []
+  goodhart_guard: null
+  acceptance: 'Чек-лист §9 брифа: нотаризованный .app проходит spctl на чужой машине; онбординг на чистом профиле (микрофон→референс→докачиваемые модели); voice_speak/voice_listen из Claude Code после одной строки конфига; смена микрофона на лету; аватар не крадёт фокус/клик сквозь/без призраков; STT держит 3.31/24.31/4.31%, p50≤300мс на живых голосах'
+  blast_radius: null
+  reversibility: null
+  status: null
+hypotheses: []
+decision: null
+note_rationale: null
+expires_at: null
+auto_noted: false
+
+# governed-files: hand-written files of this extraction, declared before edit
+# (the pretool gate matches literal relative paths; directories don't count).
+# M1:
+#   crates/voice-engine/Cargo.toml
+#   crates/voice-engine/src/lib.rs
+#   crates/voice-engine/src/stt.rs
+#   crates/voice-engine/src/tts.rs
+#   crates/voice-engine/examples/stt_smoke.rs
+#   crates/voice-engine/examples/tts_smoke.rs
+#   crates/voice-engine/examples/stt_bench_kernel.rs
+#   Cargo.toml
+#   rust-toolchain.toml
+#   .gitignore
+#   README.md
+# M2:
+#   crates/voice-runtime/Cargo.toml
+#   crates/voice-runtime/src/lib.rs
+#   crates/voice-runtime/src/state.rs
+#   crates/voice-runtime/src/config.rs
+#   crates/voice-runtime/src/mcp/mod.rs
+#   crates/voice-runtime/src/mcp/server.rs
+#   crates/voice-runtime/src/mcp/tools/mod.rs
+#   crates/voice-runtime/src/mcp/tools/voice_speak.rs
+#   crates/voice-runtime/src/mcp/tools/voice_listen.rs
+#   crates/voice-runtime/src/voice/mod.rs
+#   crates/voice-runtime/src/voice/tts.rs
+#   crates/voice-runtime/src/voice/stt.rs
+#   crates/voice-runtime/src/voice/vad.rs
+#   crates/voice-runtime/src/voice/capture.rs
+#   crates/voice-runtime/src/bin/serve.rs
+#   crates/voice-runtime/tests/vad_endpoint.rs
+#   scripts/mcp-curl-gate.sh
+# M3:
+#   crates/voice-ffi/Cargo.toml
+#   crates/voice-ffi/src/lib.rs
+#   crates/voice-ffi/src/runtime.rs
+#   crates/voice-ffi/src/capture.rs
+#   crates/voice-ffi/src/bin/uniffi-bindgen.rs
+#   crates/voice-ffi/VoiceFFI/Package.swift
+#   scripts/regen-ffi.sh
+#   scripts/dev-run.sh
+#   swift/DianaVoice/Package.swift
+#   swift/DianaVoice/Sources/DianaVoice/main.swift
+#   swift/DianaVoice/Sources/DianaVoice/AppDelegate.swift
+#   swift/DianaVoice/Sources/DianaVoice/OverlayPanel.swift
+#   swift/DianaVoice/Sources/DianaVoice/ClickThroughHostingView.swift
+#   swift/DianaVoice/Sources/DianaVoice/HitGeometry.swift
+#   swift/DianaVoice/Sources/DianaVoice/AvatarView.swift
+#   swift/DianaVoice/Sources/DianaVoice/StatusItemController.swift
+#   swift/DianaVoice/Sources/DianaVoice/SSEClient.swift
+#   swift/DianaVoice/Sources/DianaVoice/AudioCapture.swift
+#   swift/DianaVoice/Sources/DianaVoice/GlobalHotkey.swift
+#   swift/DianaVoice/Tests/DianaVoiceTests/HitGeometryTests.swift
+#   swift/DianaVoice/Tests/DianaVoiceTests/AudioCaptureTests.swift
+#   swift/DianaVoice/packaging/Info.plist
+#   swift/DianaVoice/packaging/DianaVoice.entitlements
+# M5:
+#   crates/voice-mcp-proxy/Cargo.toml
+#   crates/voice-mcp-proxy/src/main.rs
+# M4.5 (PTT):
+#   swift/DianaVoice/Sources/DianaVoice/PushToTalk.swift
+#   swift/DianaVoice/Tests/DianaVoiceTests/PushToTalkTests.swift
+# M7-M9:
+#   scripts/package-app.sh
+#   scripts/notarize.sh
+#   scripts/make-dmg.sh
+#   .github/workflows/ci.yml
+#   THIRD-PARTY-NOTICES.md
+#   Casks/diana-voice.rb
+#   swift/DianaVoice/Sources/DianaVoice/Onboarding.swift
+#   swift/DianaVoice/packaging/icon.icns

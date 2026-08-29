@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/voice-engine",
+    "crates/qwen3-tts",
+    "crates/voice-runtime",
+    "crates/voice-ffi",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Roman Voronin"]
+
+[workspace.dependencies]
+anyhow = "1"
+serde_json = "1"
+log = "0.4"
+dirs = "5"
+tempfile = "3"
+reqwest = { version = "0.12", features = ["json", "blocking", "stream"] }
+tokio = { version = "1", features = ["full"] }
+
+# Adaptive short-form encoder window, 3x faster short-form STT.
+# Upstream candidate for handy-computer/transcribe.cpp; see
+# vendor/transcribe-cpp-sys-patched/PATCH-vs-crates-io-0.2.2.diff.
+[patch.crates-io]
+transcribe-cpp-sys = { path = "vendor/transcribe-cpp-sys-patched" }
