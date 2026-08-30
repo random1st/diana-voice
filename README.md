@@ -73,6 +73,26 @@ command = "/Applications/Diana Voice.app/Contents/MacOS/diana-voice-mcp"
 - **HTTP (direct):** `POST http://127.0.0.1:4525/mcp` (Streamable HTTP; the
   port can be overridden with `DIANA_VOICE_PORT`).
 
+### No MCP allowed? (corporate policy)
+
+Two things still work with zero MCP registration:
+
+- **Push-to-talk** is a plain app feature — hold Fn, speak, the transcript is
+  pasted into whatever is focused. No agent config at all.
+- **Sessionless REST**: every tool is also exposed as
+  `POST http://127.0.0.1:4525/tools/<name>` with the arguments as the JSON
+  body — any agent with shell access can use voice via `curl`:
+
+  ```sh
+  curl -s -X POST http://127.0.0.1:4525/tools/voice_speak \
+    -H 'Content-Type: application/json' -d '{"text": "Build is green."}'
+  curl -s -X POST http://127.0.0.1:4525/tools/voice_listen \
+    -H 'Content-Type: application/json' -d '{"timeout_sec": 20}'
+  ```
+
+  Drop a note in your project's `CLAUDE.md` (or equivalent) telling the agent
+  these endpoints exist, and it has ears and a mouth without any MCP server.
+
 ## Tools
 
 ### `voice_speak`

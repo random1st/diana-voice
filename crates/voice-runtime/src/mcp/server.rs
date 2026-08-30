@@ -106,6 +106,12 @@ impl McpServer {
                 "/mcp",
                 post(handle_post).get(handle_get).delete(handle_delete),
             )
+            // Sessionless REST mirror of tools/call, for environments where
+            // MCP registration is forbidden (corporate Claude Code policy):
+            // any agent with shell access can `curl -d '{"text":"…"}'
+            // localhost:4525/tools/voice_speak`. Localhost-only, same tools,
+            // no session handshake.
+            .route("/tools/{name}", post(handle_tool_rest))
             .route("/ui-events", axum::routing::get(handle_ui_events))
             .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024));
 
@@ -277,6 +283,24 @@ async fn handle_post(
         ))
         .into_response(),
     }
+}
+
+// ── POST /tools/{name} (sessionless REST) ─────────────────────────────────────
+
+/// Direct tool invocation without an MCP session: body = the tool arguments,
+/// response = the tool result verbatim. The no-MCP escape hatch — see the
+/// router comment.
+async fn handle_tool_rest(
+    State(state): State<McpState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+    body: Option<Json<Value>>,
+) -> Response {
+    let args = body.map(|Json(v)| v).unwrap_or_else(|| json!({}));
+    let ctx = tools::ToolContext {
+        state: state.shared.clone(),
+        caller_key: None,
+    };
+    Json(tools::call_tool(&name, &args, &ctx).await).into_response()
 }
 
 // ── GET /mcp (SSE) ─────────────────────────────────────────────────────────────
