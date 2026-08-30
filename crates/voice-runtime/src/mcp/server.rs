@@ -111,7 +111,10 @@ impl McpServer {
             // any agent with shell access can `curl -d '{"text":"…"}'
             // localhost:4525/tools/voice_speak`. Localhost-only, same tools,
             // no session handshake.
-            .route("/tools/{name}", post(handle_tool_rest))
+            .route(
+                "/tools/{name}",
+                post(handle_tool_rest).get(handle_tool_rest_get),
+            )
             .route("/ui-events", axum::routing::get(handle_ui_events))
             .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024));
 
@@ -301,6 +304,29 @@ async fn handle_tool_rest(
         caller_key: None,
     };
     Json(tools::call_tool(&name, &args, &ctx).await).into_response()
+}
+
+/// GET variant of the same: arguments as query parameters
+/// (`/tools/voice_speak?text=hello`). Exists for agents whose only HTTP
+/// primitive is a GET fetch (e.g. WebFetch-style tools that cannot POST).
+/// Integer-looking values are coerced so `timeout_sec=20` works.
+async fn handle_tool_rest_get(
+    State(state): State<McpState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Response {
+    let mut args = serde_json::Map::new();
+    for (k, v) in params {
+        match v.parse::<i64>() {
+            Ok(n) => args.insert(k, json!(n)),
+            Err(_) => args.insert(k, json!(v)),
+        };
+    }
+    let ctx = tools::ToolContext {
+        state: state.shared.clone(),
+        caller_key: None,
+    };
+    Json(tools::call_tool(&name, &Value::Object(args), &ctx).await).into_response()
 }
 
 // ── GET /mcp (SSE) ─────────────────────────────────────────────────────────────

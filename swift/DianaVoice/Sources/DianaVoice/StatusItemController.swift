@@ -548,15 +548,60 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    /// Merge a Stop hook into ~/.claude/settings.json: after every reply the
-    /// agent finishes, Diana says a short "Готово". settings.json is read at
+    /// The Stop-hook script: reads the hook payload from stdin, pulls the
+    /// assistant's LAST reply out of the transcript, and speaks its first
+    /// ~200 characters. A fixed "done" chime was tried first and rejected —
+    /// pointless noise (Roman, 2026-08-30); the voice channel must carry the
+    /// actual answer.
+    private static let stopHookScript = """
+    #!/bin/bash
+    # Diana Voice Stop hook — speaks the assistant's actual reply.
+    /usr/bin/python3 - <<'PY'
+    import json, sys, urllib.request
+    try:
+        payload = json.load(sys.stdin)
+        text = ""
+        with open(payload["transcript_path"]) as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if d.get("type") == "assistant":
+                    for c in d.get("message", {}).get("content", []):
+                        if c.get("type") == "text" and c.get("text"):
+                            text = c["text"]
+        text = " ".join(text.split())
+        if not text:
+            sys.exit(0)
+        if len(text) > 200:
+            text = text[:200].rsplit(" ", 1)[0] + "…"
+        req = urllib.request.Request(
+            "http://127.0.0.1:4525/tools/voice_speak",
+            data=json.dumps({"text": text}).encode(),
+            headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=120)
+    except Exception:
+        pass
+    PY
+    """
+
+    /// Merge a Stop hook into ~/.claude/settings.json that speaks the
+    /// assistant's actual reply aloud. Replaces any earlier Diana Voice hook
+    /// (including the retired static-«Готово» one). settings.json is read at
     /// session start (not live state like ~/.claude.json), so a careful merge
     /// with a backup is safe.
     @objc private func installVoiceHook() {
         let path = NSHomeDirectory() + "/.claude/settings.json"
-        let hookCommand = "curl -s -m 15 -X POST http://127.0.0.1:4525/tools/voice_speak "
-            + "-H 'Content-Type: application/json' -d '{\"text\":\"Готово.\"}' >/dev/null 2>&1 || true"
+        let scriptPath = dataDirPath() + "/stop-hook.sh"
         do {
+            try FileManager.default.createDirectory(
+                atPath: dataDirPath(), withIntermediateDirectories: true)
+            try Self.stopHookScript.write(
+                toFile: scriptPath, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: scriptPath)
+
             var root: [String: Any] = [:]
             if let data = FileManager.default.contents(atPath: path), !data.isEmpty {
                 guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -568,16 +613,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
             var hooks = root["hooks"] as? [String: Any] ?? [:]
             var stops = hooks["Stop"] as? [[String: Any]] ?? []
-            let already = stops.contains { entry in
+            // Drop every prior Diana Voice hook (old curl one-liner or a
+            // previous script install), then add the current one.
+            stops.removeAll { entry in
                 ((entry["hooks"] as? [[String: Any]]) ?? []).contains {
-                    ($0["command"] as? String)?.contains("4525/tools/voice_speak") == true
+                    let cmd = ($0["command"] as? String) ?? ""
+                    return cmd.contains("4525/tools/voice_speak") || cmd.contains("stop-hook.sh")
                 }
             }
-            if already {
-                confirm("Voice hook is already installed (~/.claude/settings.json)")
-                return
-            }
-            stops.append(["hooks": [["type": "command", "command": hookCommand]]])
+            stops.append(["hooks": [["type": "command", "command": "\"\(scriptPath)\""]]])
             hooks["Stop"] = stops
             root["hooks"] = hooks
             let out = try JSONSerialization.data(
@@ -586,7 +630,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 atPath: (path as NSString).deletingLastPathComponent,
                 withIntermediateDirectories: true)
             try out.write(to: URL(fileURLWithPath: path))
-            confirm("Voice hook installed — Diana will say «Готово» after each reply (backup: settings.json.bak-diana-voice)")
+            confirm("Voice hook installed — Diana will read each reply aloud (backup: settings.json.bak-diana-voice)")
         } catch {
             confirm("Could not install hook: \(error.localizedDescription)")
         }

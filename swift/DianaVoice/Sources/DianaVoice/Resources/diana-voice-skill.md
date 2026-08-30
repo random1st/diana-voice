@@ -53,6 +53,19 @@ curl -s -X POST http://127.0.0.1:4525/tools/ui_bubble_show \
   -d '{"text": "Тесты пошли…", "duration_sec": 5}'
 ```
 
+## GET variant (no shell, fetch-only agents)
+
+Every tool also answers GET with query parameters — for agents whose only
+HTTP primitive is a URL fetch (WebFetch-style, no POST, no shell):
+
+```
+GET http://127.0.0.1:4525/tools/voice_speak?text=Build%20is%20green
+GET http://127.0.0.1:4525/tools/voice_listen?timeout_sec=20
+GET http://127.0.0.1:4525/tools/ui_bubble_show?text=Running%20tests
+```
+
+URL-encode the values; integer-looking parameters are coerced to numbers.
+
 ## Conventions
 
 - Responses are MCP-style: `{"content":[{"type":"text","text":"…"}]}`;
