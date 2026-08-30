@@ -1,5 +1,7 @@
 # Diana Voice
 
+[![CI](https://github.com/random1st/diana-voice/actions/workflows/ci.yml/badge.svg?branch=release)](https://github.com/random1st/diana-voice/actions/workflows/ci.yml)
+
 Voice as an MCP server for macOS. Download, install, connect — your agent gets
 ears and a mouth.
 
