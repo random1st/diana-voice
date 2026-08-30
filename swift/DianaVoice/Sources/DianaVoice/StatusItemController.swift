@@ -249,12 +249,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func setUpClaudeCode() {
         // The real thing, not a snippet: `claude mcp add` is idempotent enough
         // for a menu action and needs no manual config editing.
-        let feedback = onFeedback
         let proxy = Self.proxyPath()
-        DispatchQueue.global().async {
+        DispatchQueue.global().async { [weak self] in
             guard let claude = Self.claudePath() else {
                 DispatchQueue.main.async {
-                    feedback?("claude CLI not found — use Copy MCP Config instead")
+                    self?.confirm("claude CLI not found — use Copy MCP Config instead")
                 }
                 return
             }
@@ -266,7 +265,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             let message = ok && p.terminationStatus == 0
                 ? "Claude Code configured — restart your session"
                 : "claude mcp add failed — use Copy MCP Config instead"
-            DispatchQueue.main.async { feedback?(message) }
+            DispatchQueue.main.async { self?.confirm(message) }
         }
     }
 
@@ -334,14 +333,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         do {
             let existing = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
             if existing.contains("[mcp_servers.diana-voice]") {
-                onFeedback?("Codex is already configured (~/.codex/config.toml)")
+                confirm("Codex is already configured (~/.codex/config.toml)")
                 return
             }
             try FileManager.default.createDirectory(
                 atPath: (path as NSString).deletingLastPathComponent,
                 withIntermediateDirectories: true)
             try (existing + section).write(toFile: path, atomically: true, encoding: .utf8)
-            onFeedback?("Codex configured — restart your session")
+            confirm("Codex configured — restart your session")
         } catch {
             copyToClipboard(section, feedback: "Could not edit ~/.codex/config.toml — TOML copied instead")
         }
@@ -371,7 +370,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 atPath: (path as NSString).deletingLastPathComponent,
                 withIntermediateDirectories: true)
             try out.write(to: URL(fileURLWithPath: path))
-            onFeedback?("Cursor configured — restart your session")
+            confirm("Cursor configured — restart your session")
         } catch {
             copyToClipboard(fallback, feedback: "Could not edit ~/.cursor/mcp.json — JSON copied instead")
         }
@@ -386,7 +385,21 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
-        onFeedback?(feedback)
+        confirm(feedback)
+    }
+
+    /// Unmissable confirmation for setup actions: the avatar bubble is easy
+    /// to overlook (and can sit behind other windows), so tray-menu setup
+    /// results ALSO get a floating alert. Runs on the main thread.
+    private func confirm(_ message: String) {
+        onFeedback?(message)
+        let alert = NSAlert()
+        alert.messageText = "Diana Voice"
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        NSApp.activate(ignoringOtherApps: true)
+        alert.window.level = .floating
+        alert.runModal()
     }
 
     @objc private func openSetup() {
