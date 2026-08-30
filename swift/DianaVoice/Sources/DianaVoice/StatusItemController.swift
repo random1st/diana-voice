@@ -104,7 +104,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(claudeItem)
 
         let codexItem = NSMenuItem(
-            title: "Set Up for Codex (copy TOML)",
+            title: "Set Up for Codex",
             action: #selector(setUpCodex),
             keyEquivalent: ""
         )
@@ -112,7 +112,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(codexItem)
 
         let cursorItem = NSMenuItem(
-            title: "Set Up for Cursor (copy JSON)",
+            title: "Set Up for Cursor",
             action: #selector(setUpCursor),
             keyEquivalent: ""
         )
@@ -323,17 +323,58 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
+    // Codex and Cursor configs are plain files no running process owns, so
+    // the buttons EDIT them directly — clipboard is only the failure
+    // fallback. (Claude Code is different: ~/.claude.json is live state the
+    // CLI itself rewrites, so its button goes through `claude mcp add`.)
+
     @objc private func setUpCodex() {
-        copyToClipboard("""
-        [mcp_servers.diana-voice]
-        command = "\(Self.proxyPath())"
-        """, feedback: "Codex TOML copied — paste into ~/.codex/config.toml")
+        let path = NSHomeDirectory() + "/.codex/config.toml"
+        let section = "\n[mcp_servers.diana-voice]\ncommand = \"\(Self.proxyPath())\"\n"
+        do {
+            let existing = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+            if existing.contains("[mcp_servers.diana-voice]") {
+                onFeedback?("Codex is already configured (~/.codex/config.toml)")
+                return
+            }
+            try FileManager.default.createDirectory(
+                atPath: (path as NSString).deletingLastPathComponent,
+                withIntermediateDirectories: true)
+            try (existing + section).write(toFile: path, atomically: true, encoding: .utf8)
+            onFeedback?("Codex configured — restart your session")
+        } catch {
+            copyToClipboard(section, feedback: "Could not edit ~/.codex/config.toml — TOML copied instead")
+        }
     }
 
     @objc private func setUpCursor() {
-        copyToClipboard("""
-        {"mcpServers": {"diana-voice": {"command": "\(Self.proxyPath())"}}}
-        """, feedback: "Cursor JSON copied — paste into ~/.cursor/mcp.json")
+        let path = NSHomeDirectory() + "/.cursor/mcp.json"
+        let fallback = #"{"mcpServers": {"diana-voice": {"command": "\#(Self.proxyPath())"}}}"#
+        do {
+            // Merge, never overwrite: the file usually already lists other
+            // MCP servers. Unparseable existing JSON -> clipboard fallback
+            // rather than clobbering the user's config.
+            var root: [String: Any] = [:]
+            if let data = FileManager.default.contents(atPath: path), !data.isEmpty {
+                guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    copyToClipboard(fallback, feedback: "~/.cursor/mcp.json is not valid JSON — snippet copied instead")
+                    return
+                }
+                root = parsed
+            }
+            var servers = root["mcpServers"] as? [String: Any] ?? [:]
+            servers["diana-voice"] = ["command": Self.proxyPath()]
+            root["mcpServers"] = servers
+            let out = try JSONSerialization.data(
+                withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+            try FileManager.default.createDirectory(
+                atPath: (path as NSString).deletingLastPathComponent,
+                withIntermediateDirectories: true)
+            try out.write(to: URL(fileURLWithPath: path))
+            onFeedback?("Cursor configured — restart your session")
+        } catch {
+            copyToClipboard(fallback, feedback: "Could not edit ~/.cursor/mcp.json — JSON copied instead")
+        }
     }
 
     @objc private func configureMcpClient() {
