@@ -123,6 +123,16 @@ artifacts:
     paths:
     - crates/
     - vendor/
+    - swift/
+    - scripts/
+    - Casks/
+    - .github/
+    - README.md
+    - THIRD-PARTY-NOTICES.md
+    - Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - .gitignore
     product_criticality: null
     owner: null
   roles: []
