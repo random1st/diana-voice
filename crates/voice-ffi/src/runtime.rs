@@ -118,6 +118,21 @@ pub fn interrupt_speech() -> bool {
     }
 }
 
+/// Reload the TTS voice: drops the cached engine so the next speak picks up
+/// the current ref.wav/ref.txt. Called after recording a new reference or
+/// resetting to the bundled default — without it a voice change silently
+/// waits for an app restart.
+#[uniffi::export]
+pub fn reload_voice() {
+    if let Some(shared) = SHARED.get() {
+        if let Ok(guard) = shared.tts.try_read() {
+            if let Some(tts) = guard.as_ref() {
+                tts.reset_engine();
+            }
+        }
+    }
+}
+
 /// Download the Whisper STT model (~845 MB) if absent. Resumes a partial
 /// file. Blocking for the whole download — call from a background queue;
 /// Swift shows progress by polling the `.part` file size next to the
