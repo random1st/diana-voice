@@ -24,7 +24,10 @@ let package = Package(
                 // Installed into app support on first launch when no ref
                 // exists; recording your own in Setup overwrites it.
                 .copy("Resources/diana-ref.wav"),
-                .copy("Resources/diana-ref.txt")
+                .copy("Resources/diana-ref.txt"),
+                // The agent skill installed by the tray's "Install Claude
+                // Skill" — kept in sync with skills/claude/diana-voice/.
+                .copy("Resources/diana-voice-skill.md")
             ],
             // VoiceFFI's static lib embeds the whole voice-runtime (STT/TTS
             // engines on Candle+Metal, VAD, MCP/HTTP server) — a uniffi

@@ -178,6 +178,25 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         configItem.target = self
         menu.addItem(configItem)
 
+        // No-MCP channel: environments where MCP servers are forbidden get a
+        // skill (teaches the agent the REST endpoints) and/or a Stop hook
+        // (spoken "done" after every reply). Both are plain files.
+        let skillItem = NSMenuItem(
+            title: "Install Claude Skill (no MCP)",
+            action: #selector(installClaudeSkill),
+            keyEquivalent: ""
+        )
+        skillItem.target = self
+        menu.addItem(skillItem)
+
+        let hookItem = NSMenuItem(
+            title: "Install Voice Hook (no MCP)",
+            action: #selector(installVoiceHook),
+            keyEquivalent: ""
+        )
+        hookItem.target = self
+        menu.addItem(hookItem)
+
         menu.addItem(NSMenuItem.separator())
 
         let setupItem = NSMenuItem(
@@ -480,6 +499,86 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func openSetup() {
         onOpenSetup?()
+    }
+
+    // MARK: - No-MCP channel (skill + hook)
+
+    /// Copy the bundled agent skill to ~/.claude/skills/diana-voice/SKILL.md —
+    /// teaches Claude the REST endpoints; no MCP registration involved.
+    @objc private func installClaudeSkill() {
+        let candidates: [URL?] = [
+            Bundle.main.resourceURL,
+            Bundle.main.executableURL?.deletingLastPathComponent(),
+            Bundle.main.bundleURL,
+        ]
+        var skillURL: URL?
+        for dir in candidates {
+            guard let bundleURL = dir?.appendingPathComponent("DianaVoice_DianaVoice.bundle"),
+                  let bundle = Bundle(url: bundleURL),
+                  let url = bundle.url(forResource: "diana-voice-skill", withExtension: "md")
+            else { continue }
+            skillURL = url
+            break
+        }
+        guard let skillURL else {
+            confirm("Skill resource missing from this build")
+            return
+        }
+        let dest = NSHomeDirectory() + "/.claude/skills/diana-voice/SKILL.md"
+        do {
+            try FileManager.default.createDirectory(
+                atPath: (dest as NSString).deletingLastPathComponent,
+                withIntermediateDirectories: true)
+            let data = try Data(contentsOf: skillURL)
+            try data.write(to: URL(fileURLWithPath: dest))
+            confirm("Skill installed to ~/.claude/skills/diana-voice — restart your Claude session")
+        } catch {
+            confirm("Could not install skill: \(error.localizedDescription)")
+        }
+    }
+
+    /// Merge a Stop hook into ~/.claude/settings.json: after every reply the
+    /// agent finishes, Diana says a short "Готово". settings.json is read at
+    /// session start (not live state like ~/.claude.json), so a careful merge
+    /// with a backup is safe.
+    @objc private func installVoiceHook() {
+        let path = NSHomeDirectory() + "/.claude/settings.json"
+        let hookCommand = "curl -s -m 15 -X POST http://127.0.0.1:4525/tools/voice_speak "
+            + "-H 'Content-Type: application/json' -d '{\"text\":\"Готово.\"}' >/dev/null 2>&1 || true"
+        do {
+            var root: [String: Any] = [:]
+            if let data = FileManager.default.contents(atPath: path), !data.isEmpty {
+                guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    confirm("~/.claude/settings.json is not valid JSON — not touching it")
+                    return
+                }
+                root = parsed
+                try data.write(to: URL(fileURLWithPath: path + ".bak-diana-voice"))
+            }
+            var hooks = root["hooks"] as? [String: Any] ?? [:]
+            var stops = hooks["Stop"] as? [[String: Any]] ?? []
+            let already = stops.contains { entry in
+                ((entry["hooks"] as? [[String: Any]]) ?? []).contains {
+                    ($0["command"] as? String)?.contains("4525/tools/voice_speak") == true
+                }
+            }
+            if already {
+                confirm("Voice hook is already installed (~/.claude/settings.json)")
+                return
+            }
+            stops.append(["hooks": [["type": "command", "command": hookCommand]]])
+            hooks["Stop"] = stops
+            root["hooks"] = hooks
+            let out = try JSONSerialization.data(
+                withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+            try FileManager.default.createDirectory(
+                atPath: (path as NSString).deletingLastPathComponent,
+                withIntermediateDirectories: true)
+            try out.write(to: URL(fileURLWithPath: path))
+            confirm("Voice hook installed — Diana will say «Готово» after each reply (backup: settings.json.bak-diana-voice)")
+        } catch {
+            confirm("Could not install hook: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Avatar image

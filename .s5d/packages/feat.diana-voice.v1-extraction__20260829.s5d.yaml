@@ -124,6 +124,7 @@ artifacts:
     - crates/
     - vendor/
     - swift/
+    - skills/
     - scripts/
     - Casks/
     - .github/
@@ -263,3 +264,6 @@ auto_noted: false
 #   crates/voice-runtime/src/mcp/tools/ui_bubble_show.rs
 #   swift/DianaVoice/Sources/DianaVoice/Resources/diana-ref.wav
 #   swift/DianaVoice/Sources/DianaVoice/Resources/diana-ref.txt
+# No-MCP channel (skill + hook):
+#   skills/claude/diana-voice/SKILL.md
+#   swift/DianaVoice/Sources/DianaVoice/Resources/diana-voice-skill.md

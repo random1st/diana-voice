@@ -1,6 +1,6 @@
-revision: 24
+revision: 28
 spec_ref: feat.diana-voice.v1-extraction__20260829.s5d.yaml
-spec_sha256: sha256:d384827a2ea67ab69d3eca12fd8d3424d14ba6fcfd59ca094664455feeb04a46
+spec_sha256: sha256:619679b2e6b43d54e3a5850c98c327fc5e414149f1e02b20e394680066964db1
 status: approved
 sync_status: unknown
 status_history:
@@ -52,6 +52,14 @@ status_history:
   timestamp: 2026-08-30T05:17:41.521748+00:00
 - status: approved
   timestamp: 2026-08-30T05:17:41.548827+00:00
+- status: previewed
+  timestamp: 2026-08-30T06:48:53.139070+00:00
+- status: approved
+  timestamp: 2026-08-30T06:48:53.207968+00:00
+- status: previewed
+  timestamp: 2026-08-30T06:50:14.945846+00:00
+- status: approved
+  timestamp: 2026-08-30T06:50:14.999604+00:00
 active_phase: null
 phase_history: []
 phase_runs: []
@@ -100,9 +108,17 @@ approvals:
   date: 2026-08-30T05:17:41.548826+00:00
   spec_sha256: sha256:d384827a2ea67ab69d3eca12fd8d3424d14ba6fcfd59ca094664455feeb04a46
   diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-30T06:48:53.207966+00:00
+  spec_sha256: sha256:3503e3e521c652feb891052bd638577f16ae0a73954fd93af04ef06878a1f8dd
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-30T06:50:14.999601+00:00
+  spec_sha256: sha256:619679b2e6b43d54e3a5850c98c327fc5e414149f1e02b20e394680066964db1
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
 preview:
   diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
-  previewed_spec_sha256: sha256:d384827a2ea67ab69d3eca12fd8d3424d14ba6fcfd59ca094664455feeb04a46
+  previewed_spec_sha256: sha256:619679b2e6b43d54e3a5850c98c327fc5e414149f1e02b20e394680066964db1
   actions:
     create: 7
     link: 3
