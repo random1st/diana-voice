@@ -197,6 +197,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         hookItem.target = self
         menu.addItem(hookItem)
 
+        let unhookItem = NSMenuItem(
+            title: "Uninstall Voice Hook",
+            action: #selector(uninstallVoiceHook),
+            keyEquivalent: ""
+        )
+        unhookItem.target = self
+        menu.addItem(unhookItem)
+
         menu.addItem(NSMenuItem.separator())
 
         let setupItem = NSMenuItem(
@@ -633,6 +641,43 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             confirm("Voice hook installed — Diana will read each reply aloud (backup: settings.json.bak-diana-voice)")
         } catch {
             confirm("Could not install hook: \(error.localizedDescription)")
+        }
+    }
+
+    /// Remove every Diana Voice hook (any generation: the retired «Готово»
+    /// one-liner or the reply-reading script) from ~/.claude/settings.json.
+    @objc private func uninstallVoiceHook() {
+        let path = NSHomeDirectory() + "/.claude/settings.json"
+        do {
+            guard let data = FileManager.default.contents(atPath: path), !data.isEmpty,
+                  var root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  var hooks = root["hooks"] as? [String: Any],
+                  var stops = hooks["Stop"] as? [[String: Any]]
+            else {
+                confirm("No voice hook found (~/.claude/settings.json)")
+                return
+            }
+            let before = stops.count
+            stops.removeAll { entry in
+                ((entry["hooks"] as? [[String: Any]]) ?? []).contains {
+                    let cmd = ($0["command"] as? String) ?? ""
+                    return cmd.contains("4525/tools/voice_speak") || cmd.contains("stop-hook.sh")
+                }
+            }
+            guard stops.count < before else {
+                confirm("No voice hook found (~/.claude/settings.json)")
+                return
+            }
+            try data.write(to: URL(fileURLWithPath: path + ".bak-diana-voice"))
+            hooks["Stop"] = stops
+            root["hooks"] = hooks
+            let out = try JSONSerialization.data(
+                withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+            try out.write(to: URL(fileURLWithPath: path))
+            try? FileManager.default.removeItem(atPath: dataDirPath() + "/stop-hook.sh")
+            confirm("Voice hook removed — restart your agent session")
+        } catch {
+            confirm("Could not remove hook: \(error.localizedDescription)")
         }
     }
 
