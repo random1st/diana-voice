@@ -270,3 +270,6 @@ auto_noted: false
 # CI fix (2026-08-30):
 #   crates/qwen3-tts/src/lib.rs
 #   .github/workflows/ci.yml
+# Repo hygiene (2026-08-30):
+#   .github/ISSUE_TEMPLATE/bug_report.md
+#   .github/ISSUE_TEMPLATE/config.yml
