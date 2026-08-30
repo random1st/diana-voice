@@ -14,6 +14,20 @@ enum DefaultVoice {
         let dataDir = dataDirPath()
         let refWav = dataDir + "/ref.wav"
         guard !FileManager.default.fileExists(atPath: refWav) else { return }
+        install(overwrite: false)
+    }
+
+    /// Force-restore Diana's bundled voice over whatever reference is active
+    /// ("Reset to Diana's Voice" in Setup). Returns success.
+    @discardableResult
+    static func restoreDefault() -> Bool {
+        install(overwrite: true)
+    }
+
+    @discardableResult
+    private static func install(overwrite: Bool) -> Bool {
+        let dataDir = dataDirPath()
+        let refWav = dataDir + "/ref.wav"
         // Same manual bundle probing as AvatarImageResolver — Bundle.module's
         // fatalError already crashed one machine and is banned here.
         let candidates: [URL?] = [
@@ -30,16 +44,22 @@ enum DefaultVoice {
             do {
                 try FileManager.default.createDirectory(
                     atPath: dataDir, withIntermediateDirectories: true)
+                if overwrite {
+                    try? FileManager.default.removeItem(atPath: refWav)
+                    try? FileManager.default.removeItem(atPath: dataDir + "/ref.txt")
+                }
                 try FileManager.default.copyItem(at: wav, to: URL(fileURLWithPath: refWav))
                 try FileManager.default.copyItem(
                     at: txt, to: URL(fileURLWithPath: dataDir + "/ref.txt"))
                 NSLog("DefaultVoice: installed bundled Diana reference")
+                return true
             } catch {
                 NSLog("DefaultVoice: install failed: \(error)")
+                return false
             }
-            return
         }
         NSLog("DefaultVoice: bundled reference not found — Setup recording required")
+        return false
     }
 }
 
@@ -187,8 +207,23 @@ final class OnboardingModel: ObservableObject {
                 toFile: dataDir + "/ref.txt", atomically: true, encoding: .utf8)
             referenceSaved = true
             recordError = nil
+            // The engine caches the voice prompt — drop it so the new voice
+            // applies on the very next speak, not after a restart.
+            reloadVoice()
         } catch {
             recordError = "Could not save the recording: \(error.localizedDescription)"
+        }
+    }
+
+    /// "Reset to Diana's Voice": bundled reference back in place, engine
+    /// reloaded — effective immediately.
+    func resetToDefaultVoice() {
+        if DefaultVoice.restoreDefault() {
+            reloadVoice()
+            referenceSaved = false
+            recordError = nil
+        } else {
+            recordError = "Could not restore the default voice (bundled reference missing)."
         }
     }
 
@@ -314,6 +349,9 @@ struct OnboardingView: View {
             HStack(spacing: 12) {
                 Button(model.isRecording ? "Stop" : (model.referenceSaved ? "Re-record" : "Record My Voice")) {
                     model.toggleRecording()
+                }
+                if !model.isRecording {
+                    Button("Reset to Diana's Voice") { model.resetToDefaultVoice() }
                 }
                 if model.isRecording {
                     Text("Recording…").foregroundColor(.red)

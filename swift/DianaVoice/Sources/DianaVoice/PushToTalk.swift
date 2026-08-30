@@ -257,11 +257,11 @@ actor PttCoordinator {
                     // Blocking Metal inference — never call this on the main thread.
                     let text = try transcribeSamples(samples: samples, language: language)
                     if !text.isEmpty {
-                        // The paste is invisible when it lands in a non-text
-                        // target (or silently no-ops without Accessibility) —
-                        // the bubble is the user's only confirmation of what
-                        // was heard.
-                        await MainActor.run { client?.showTransientBubble(text) }
+                        // No transcript bubble: the bubble is HER mouth, and
+                        // echoing the user's own words back read as parroting
+                        // (Roman, 2026-08-30). The paste landing in the
+                        // focused field is the confirmation; only failures
+                        // speak up below.
                         await Paster.paste(text)
                         await MainActor.run { client?.mood = .idle }
                     } else {

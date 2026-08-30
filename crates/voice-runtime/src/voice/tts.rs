@@ -60,6 +60,17 @@ impl TtsManager {
         }
     }
 
+    /// Drop the loaded engine so the next `voice_speak` reloads it — the way
+    /// a voice-reference change (re-record / reset to default) takes effect
+    /// without an app restart. The engine caches the ICL voice prompt at
+    /// load, so without this a new ref.wav is silently ignored.
+    pub fn reset_engine(&self) {
+        let mut guard = self.qwen_engine.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.take().is_some() {
+            info!("Qwen TTS: engine dropped — voice reference will reload on next speak");
+        }
+    }
+
     /// Interrupt current speech playback. Returns true if something was interrupted.
     pub fn interrupt(&self) -> bool {
         let mut guard = self.current_handle.lock().unwrap_or_else(|e| e.into_inner());
