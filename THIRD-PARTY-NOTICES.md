@@ -47,8 +47,11 @@ incorporates or downloads the following third-party components.
 ### Whisper Large v3 Turbo (GGUF)
 
 - File: `whisper-large-v3-turbo-Q8_0.gguf` (~845 MB)
-- License: Apache-2.0, inherited from
+- License: MIT, inherited from
   [openai/whisper-large-v3-turbo](https://huggingface.co/openai/whisper-large-v3-turbo)
+  (the GGUF repack repo
+  [handy-computer/whisper-large-v3-turbo-gguf](https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf)
+  is tagged Apache-2.0; both are permissive)
 
 ### Qwen3-TTS 12Hz 0.6B Base
 
