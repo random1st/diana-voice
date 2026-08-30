@@ -1,6 +1,6 @@
 cask "diana-voice" do
   version "0.1.0"
-  sha256 "5b7c994813c14d2b442e9c6de1dbdd9921e66e4657bce9f7139317fb7581f9f6"
+  sha256 "dcc353066c52b87e7fd85ca9020c47437cd815de271f71c4953481080516bb6d"
 
   url "https://github.com/random1st/diana-voice/releases/download/v#{version}/DianaVoice-#{version}.dmg"
   name "Diana Voice"
