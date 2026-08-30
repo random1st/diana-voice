@@ -503,8 +503,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: - No-MCP channel (skill + hook)
 
-    /// Copy the bundled agent skill to ~/.claude/skills/diana-voice/SKILL.md —
-    /// teaches Claude the REST endpoints; no MCP registration involved.
+    /// Copy the bundled agent skill into BOTH skill conventions:
+    /// ~/.claude/skills/diana-voice/ (Claude Code) and
+    /// ~/.agents/skills/diana-voice/ (the cross-agent layout Codex and
+    /// friends read). Teaches the REST endpoints; no MCP registration.
     @objc private func installClaudeSkill() {
         let candidates: [URL?] = [
             Bundle.main.resourceURL,
@@ -524,14 +526,23 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             confirm("Skill resource missing from this build")
             return
         }
-        let dest = NSHomeDirectory() + "/.claude/skills/diana-voice/SKILL.md"
+        let home = NSHomeDirectory()
+        let destinations = [
+            home + "/.claude/skills/diana-voice/SKILL.md",
+            home + "/.agents/skills/diana-voice/SKILL.md",
+        ]
+        var installed: [String] = []
         do {
-            try FileManager.default.createDirectory(
-                atPath: (dest as NSString).deletingLastPathComponent,
-                withIntermediateDirectories: true)
             let data = try Data(contentsOf: skillURL)
-            try data.write(to: URL(fileURLWithPath: dest))
-            confirm("Skill installed to ~/.claude/skills/diana-voice — restart your Claude session")
+            for dest in destinations {
+                try FileManager.default.createDirectory(
+                    atPath: (dest as NSString).deletingLastPathComponent,
+                    withIntermediateDirectories: true)
+                try data.write(to: URL(fileURLWithPath: dest))
+                installed.append(dest.replacingOccurrences(of: home, with: "~"))
+            }
+            confirm("Skill installed:\n" + installed.joined(separator: "\n")
+                + "\nRestart your agent session.")
         } catch {
             confirm("Could not install skill: \(error.localizedDescription)")
         }
