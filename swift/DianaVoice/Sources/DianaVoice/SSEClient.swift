@@ -42,6 +42,7 @@ final class SSEClient: ObservableObject {
     deinit {
         sseReader?.stop()
         bubbleTimer?.cancel()
+        typewriterTask?.cancel()
     }
 
     // MARK: - Streaming
@@ -77,7 +78,7 @@ final class SSEClient: ObservableObject {
                 // Explicit clear — cancel timer, clear immediately.
                 clearBubble()
             } else {
-                setSpeechWithTimer(text, duration: 6)
+                setSpeechTypewriter(text)
             }
 
         case "capture-start":
@@ -104,10 +105,37 @@ final class SSEClient: ObservableObject {
 
     // MARK: - Bubble timer (auto-clear)
 
+    private var typewriterTask: Task<Void, Never>?
+
     /// Set speech and schedule auto-clear after `duration` seconds.
     /// Cancels any prior pending timer so a new message resets the clock.
     private func setSpeechWithTimer(_ text: String, duration: Double) {
+        typewriterTask?.cancel()
+        typewriterTask = nil
         speech = text
+        scheduleClear(after: duration)
+    }
+
+    /// Spoken text types itself out (donor's typewriter feel) instead of
+    /// appearing at once — ~70 chars/s, comfortably ahead of speech so the
+    /// bubble never lags the audio. Transient feedback bubbles stay instant.
+    private func setSpeechTypewriter(_ text: String, duration: Double = 6) {
+        typewriterTask?.cancel()
+        bubbleTimer?.cancel()
+        speech = ""
+        typewriterTask = Task { [weak self] in
+            var shown = ""
+            for ch in text {
+                guard !Task.isCancelled else { return }
+                shown.append(ch)
+                self?.speech = shown
+                try? await Task.sleep(nanoseconds: 14_000_000)
+            }
+            self?.scheduleClear(after: duration)
+        }
+    }
+
+    private func scheduleClear(after duration: Double) {
         bubbleTimer?.cancel()
         bubbleTimer = Task { [weak self] in
             let ns = UInt64(max(duration, 0.5) * 1_000_000_000)
@@ -118,6 +146,8 @@ final class SSEClient: ObservableObject {
     }
 
     private func clearBubble() {
+        typewriterTask?.cancel()
+        typewriterTask = nil
         bubbleTimer?.cancel()
         bubbleTimer = nil
         speech = ""

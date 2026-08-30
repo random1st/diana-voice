@@ -1,6 +1,43 @@
 import AppKit
 import CoreAudio
 import UniformTypeIdentifiers
+import VoiceFFI
+
+// MARK: - SttLanguage
+
+/// The one runtime setting: STT language, shared between the server path
+/// (voice_listen — Rust reads it per call from config.json) and the PTT path
+/// (Swift passes it into transcribeSamples). One file, no IPC.
+enum SttLanguage {
+    static let options: [(code: String, name: String)] = [
+        ("auto", "Auto (RU + EN)"), ("ru", "Russian"), ("en", "English"),
+    ]
+
+    static var configPath: String { dataDirPath() + "/config.json" }
+
+    static func load() -> String {
+        guard let data = FileManager.default.contents(atPath: configPath),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let lang = obj["language"] as? String
+        else { return "auto" }
+        return lang
+    }
+
+    static func save(_ code: String) {
+        var obj: [String: Any] = [:]
+        if let data = FileManager.default.contents(atPath: configPath),
+           let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            obj = parsed
+        }
+        obj["language"] = code
+        guard let out = try? JSONSerialization.data(
+            withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) else { return }
+        try? FileManager.default.createDirectory(
+            atPath: (configPath as NSString).deletingLastPathComponent,
+            withIntermediateDirectories: true)
+        try? out.write(to: URL(fileURLWithPath: configPath))
+    }
+}
 
 // MARK: - StatusItemController
 
@@ -19,6 +56,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var speakerMenuItem: NSMenuItem!
     private var pttMenuItems: [NSMenuItem] = []
     private var pttBinding: PttBinding = PttBinding.load()
+    private var languageMenuItems: [NSMenuItem] = []
 
     /// User-visible feedback line (wired to the avatar speech bubble by
     /// AppDelegate). UNUserNotificationCenter is NOT an option here: it
@@ -92,6 +130,19 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         refreshPttCheckmarks()
         pttItem.submenu = pttSubmenu
         menu.addItem(pttItem)
+
+        let langItem = NSMenuItem(title: "STT Language", action: nil, keyEquivalent: "")
+        let langSubmenu = NSMenu()
+        for option in SttLanguage.options {
+            let item = NSMenuItem(title: option.name, action: #selector(selectLanguage(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = option.code
+            langSubmenu.addItem(item)
+            languageMenuItems.append(item)
+        }
+        refreshLanguageCheckmarks()
+        langItem.submenu = langSubmenu
+        menu.addItem(langItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -175,6 +226,31 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             defaultSelector: kAudioHardwarePropertyDefaultOutputDevice,
             action: #selector(selectSpeaker(_:)))
         refreshPttCheckmarks()
+        refreshLanguageCheckmarks()
+    }
+
+    // MARK: - Recording indicator
+
+    /// Red menu-bar glyph while the mic is hot (listening) — the app's own
+    /// privacy signal, mirroring the system's orange dot.
+    func setListening(_ on: Bool) {
+        statusItem.button?.contentTintColor = on ? .systemRed : nil
+    }
+
+    // MARK: - STT language
+
+    @objc private func selectLanguage(_ sender: NSMenuItem) {
+        guard let code = sender.representedObject as? String else { return }
+        SttLanguage.save(code)
+        refreshLanguageCheckmarks()
+        onFeedback?("STT language: \(sender.title)")
+    }
+
+    private func refreshLanguageCheckmarks() {
+        let current = SttLanguage.load()
+        for item in languageMenuItems {
+            item.state = ((item.representedObject as? String) == current) ? .on : .off
+        }
     }
 
     // MARK: - Status text

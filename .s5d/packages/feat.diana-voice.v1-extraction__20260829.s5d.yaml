@@ -248,3 +248,8 @@ auto_noted: false
 #   Casks/diana-voice.rb
 #   swift/DianaVoice/Sources/DianaVoice/Onboarding.swift
 #   swift/DianaVoice/packaging/icon.icns
+# Diana-parity batch (2026-08-30):
+#   crates/voice-runtime/src/mcp/tools/voice_transcribe.rs
+#   crates/voice-runtime/src/mcp/tools/ui_bubble_show.rs
+#   swift/DianaVoice/Sources/DianaVoice/Resources/diana-ref.wav
+#   swift/DianaVoice/Sources/DianaVoice/Resources/diana-ref.txt

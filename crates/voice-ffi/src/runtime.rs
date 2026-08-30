@@ -103,6 +103,21 @@ pub fn transcribe_samples(samples: Vec<f32>, language: String) -> Result<String,
     })
 }
 
+/// Interrupt any ongoing TTS playback — wired to a click on the avatar
+/// (the natural "hush" gesture). Cheap and sync: just an atomic cancel flag;
+/// returns whether something was actually playing.
+#[uniffi::export]
+pub fn interrupt_speech() -> bool {
+    let Some(shared) = SHARED.get() else {
+        return false;
+    };
+    // try_read is enough: the manager slot is written once at startup.
+    match shared.tts.try_read() {
+        Ok(guard) => guard.as_ref().map(|t| t.interrupt()).unwrap_or(false),
+        Err(_) => false,
+    }
+}
+
 /// Download the Whisper STT model (~845 MB) if absent. Resumes a partial
 /// file. Blocking for the whole download — call from a background queue;
 /// Swift shows progress by polling the `.part` file size next to the

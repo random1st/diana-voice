@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import VoiceFFI
 
@@ -20,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hostingView: ClickThroughHostingView<AvatarOverlayView>?
     private var pushToTalk: PushToTalkController?
     private var onboarding: OnboardingController?
+    private var moodSink: AnyCancellable?
+
+    private static let panelOriginKey = "avatarPanelOrigin"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let url = URL(string: "http://127.0.0.1:\(voicePort)/ui-events") else {
@@ -43,7 +47,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hv.frame = NSRect(origin: .zero, size: overlayPanel.contentRect(forFrameRect: overlayPanel.frame).size)
         hv.wantsLayer = true
 
+        // A click on the avatar (not a drag) interrupts ongoing speech — the
+        // natural "hush" gesture. Cheap sync FFI call (atomic cancel flag).
+        hv.onPreview = { _ = interruptSpeech() }
+
         overlayPanel.contentView = hv
+
+        // Avatar position survives relaunches; ignore a saved origin that no
+        // longer lands on any attached screen (monitor unplugged).
+        if let saved = UserDefaults.standard.string(forKey: Self.panelOriginKey) {
+            let origin = NSPointFromString(saved)
+            if NSScreen.screens.contains(where: { $0.frame.insetBy(dx: -80, dy: -80).contains(origin) }) {
+                overlayPanel.setFrameOrigin(origin)
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: overlayPanel, queue: .main
+        ) { note in
+            guard let w = note.object as? NSWindow else { return }
+            UserDefaults.standard.set(
+                NSStringFromPoint(w.frame.origin), forKey: Self.panelOriginKey)
+        }
+
         overlayPanel.orderFrontRegardless()
 
         self.panel = overlayPanel
@@ -60,6 +85,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let tray = StatusItemController()
         tray.onFeedback = feedback
         self.statusItemController = tray
+
+        // Privacy signal: the tray glyph turns red whenever the mic is hot
+        // (voice_listen session or PTT — both drive `mood` to .listening).
+        moodSink = client.$mood
+            .receive(on: RunLoop.main)
+            .sink { [weak tray] mood in tray?.setListening(mood == .listening) }
 
         // Push-to-talk: hold a key → capture mic → transcribe (in-process
         // FFI, no server round-trip) → paste into the frontmost app. Default

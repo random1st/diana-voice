@@ -112,6 +112,18 @@ Interrupts any ongoing speech.
 }
 ```
 
+### `voice_transcribe`
+
+Transcribe an audio file (WAV, any sample rate) with the local Whisper
+engine — meetings, voice messages, recordings. Takes `path` (absolute) and an
+optional `language` hint.
+
+### `ui_bubble_show`
+
+Show text in the avatar's speech bubble without speaking it aloud — a visual
+"whisper" for statuses and short answers. Takes `text` and an optional
+`duration_sec`.
+
 ## Push-to-talk
 
 Hold **Fn** to talk (default); release to send. The key can be changed from
