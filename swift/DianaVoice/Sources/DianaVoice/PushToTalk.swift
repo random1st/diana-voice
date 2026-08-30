@@ -251,10 +251,11 @@ actor PttCoordinator {
                 return
             }
             await MainActor.run { client?.mood = .processing }
+            let language = await MainActor.run { SttLanguage.load() }
             Task.detached {
                 do {
                     // Blocking Metal inference — never call this on the main thread.
-                    let text = try transcribeSamples(samples: samples, language: "auto")
+                    let text = try transcribeSamples(samples: samples, language: language)
                     if !text.isEmpty {
                         // The paste is invisible when it lands in a non-text
                         // target (or silently no-ops without Accessibility) —

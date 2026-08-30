@@ -1,5 +1,7 @@
+pub mod ui_bubble_show;
 pub mod voice_listen;
 pub mod voice_speak;
+pub mod voice_transcribe;
 
 use std::sync::{Arc, OnceLock};
 
@@ -38,6 +40,8 @@ fn registry() -> &'static Vec<Box<dyn Tool>> {
         vec![
             Box::new(voice_speak::VoiceSpeakTool),
             Box::new(voice_listen::VoiceListenTool),
+            Box::new(voice_transcribe::VoiceTranscribeTool),
+            Box::new(ui_bubble_show::UiBubbleShowTool),
         ]
     })
 }

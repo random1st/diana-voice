@@ -44,7 +44,10 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            language: std::env::var("DIANA_VOICE_LANGUAGE").unwrap_or_else(|_| "auto".to_string()),
+            language: std::env::var("DIANA_VOICE_LANGUAGE")
+                .ok()
+                .or_else(file_language)
+                .unwrap_or_else(|| "auto".to_string()),
             listen_timeout_secs: std::env::var("DIANA_VOICE_LISTEN_TIMEOUT_SECS")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -53,9 +56,20 @@ impl Default for Config {
     }
 }
 
+/// The one runtime-changeable setting: STT language, written by the tray's
+/// "STT Language" submenu as `{"language": "auto"|"ru"|"en"}` into
+/// `{data_dir}/config.json`. Env still wins (tests/benches). Read per call —
+/// a stat+parse of a <100-byte file is nothing next to Metal inference, and
+/// it makes tray changes apply to the very next utterance with no IPC.
+fn file_language() -> Option<String> {
+    let text = std::fs::read_to_string(data_dir().join("config.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    v.get("language")?.as_str().map(str::to_string)
+}
+
 impl Config {
-    /// Load configuration from env, falling back to defaults. Cheap — call it
-    /// per request rather than caching, there is no file I/O involved.
+    /// Load configuration from env + config.json, falling back to defaults.
+    /// Cheap — call it per request rather than caching.
     pub fn load() -> Self {
         Self::default()
     }
