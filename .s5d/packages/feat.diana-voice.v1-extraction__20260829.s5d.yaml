@@ -267,3 +267,6 @@ auto_noted: false
 # No-MCP channel (skill + hook):
 #   skills/claude/diana-voice/SKILL.md
 #   swift/DianaVoice/Sources/DianaVoice/Resources/diana-voice-skill.md
+# CI fix (2026-08-30):
+#   crates/qwen3-tts/src/lib.rs
+#   .github/workflows/ci.yml

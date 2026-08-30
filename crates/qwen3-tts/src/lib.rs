@@ -2255,7 +2255,12 @@ pub fn auto_device() -> Result<Device> {
 
     #[cfg(feature = "metal")]
     {
-        if let Ok(device) = Device::new_metal(0) {
+        // candle's Device::new_metal PANICS on machines with no Metal GPU
+        // (VMs, CI runners): its device enumeration does swap_remove(0) on an
+        // empty list instead of returning Err. Catch the unwind so "no GPU"
+        // degrades to CPU as this function always promised.
+        let metal = std::panic::catch_unwind(|| Device::new_metal(0));
+        if let Ok(Ok(device)) = metal {
             tracing::info!("Using Metal device");
             return Ok(device);
         }
