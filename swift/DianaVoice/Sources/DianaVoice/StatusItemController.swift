@@ -178,9 +178,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         configItem.target = self
         menu.addItem(configItem)
 
-        // No-MCP channel: environments where MCP servers are forbidden get a
-        // skill (teaches the agent the REST endpoints) and/or a Stop hook
-        // (spoken "done" after every reply). Both are plain files.
+        // No-MCP channel: where MCP servers are forbidden, the skill teaches
+        // the agent the REST endpoints and it decides when voice is worth it.
+        // (A Stop hook that spoke on every turn also existed — removed: a
+        // loudspeaker on a timer, not a voice.)
         let skillItem = NSMenuItem(
             title: "Install Claude Skill (no MCP)",
             action: #selector(installClaudeSkill),
@@ -188,22 +189,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         )
         skillItem.target = self
         menu.addItem(skillItem)
-
-        let hookItem = NSMenuItem(
-            title: "Install Voice Hook (no MCP)",
-            action: #selector(installVoiceHook),
-            keyEquivalent: ""
-        )
-        hookItem.target = self
-        menu.addItem(hookItem)
-
-        let unhookItem = NSMenuItem(
-            title: "Uninstall Voice Hook",
-            action: #selector(uninstallVoiceHook),
-            keyEquivalent: ""
-        )
-        unhookItem.target = self
-        menu.addItem(unhookItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -509,7 +494,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         onOpenSetup?()
     }
 
-    // MARK: - No-MCP channel (skill + hook)
+    // MARK: - No-MCP channel (agent skill)
 
     /// Copy the bundled agent skill into BOTH skill conventions:
     /// ~/.claude/skills/diana-voice/ (Claude Code) and
@@ -556,130 +541,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    /// The Stop-hook script: reads the hook payload from stdin, pulls the
-    /// assistant's LAST reply out of the transcript, and speaks its first
-    /// ~200 characters. A fixed "done" chime was tried first and rejected —
-    /// pointless noise (Roman, 2026-08-30); the voice channel must carry the
-    /// actual answer.
-    private static let stopHookScript = """
-    #!/bin/bash
-    # Diana Voice Stop hook — speaks the assistant's actual reply.
-    /usr/bin/python3 - <<'PY'
-    import json, sys, urllib.request
-    try:
-        payload = json.load(sys.stdin)
-        text = ""
-        with open(payload["transcript_path"]) as f:
-            for line in f:
-                try:
-                    d = json.loads(line)
-                except ValueError:
-                    continue
-                if d.get("type") == "assistant":
-                    for c in d.get("message", {}).get("content", []):
-                        if c.get("type") == "text" and c.get("text"):
-                            text = c["text"]
-        text = " ".join(text.split())
-        if not text:
-            sys.exit(0)
-        if len(text) > 200:
-            text = text[:200].rsplit(" ", 1)[0] + "…"
-        req = urllib.request.Request(
-            "http://127.0.0.1:4525/tools/voice_speak",
-            data=json.dumps({"text": text}).encode(),
-            headers={"Content-Type": "application/json"})
-        urllib.request.urlopen(req, timeout=120)
-    except Exception:
-        pass
-    PY
-    """
-
-    /// Merge a Stop hook into ~/.claude/settings.json that speaks the
-    /// assistant's actual reply aloud. Replaces any earlier Diana Voice hook
-    /// (including the retired static-«Готово» one). settings.json is read at
-    /// session start (not live state like ~/.claude.json), so a careful merge
-    /// with a backup is safe.
-    @objc private func installVoiceHook() {
-        let path = NSHomeDirectory() + "/.claude/settings.json"
-        let scriptPath = dataDirPath() + "/stop-hook.sh"
-        do {
-            try FileManager.default.createDirectory(
-                atPath: dataDirPath(), withIntermediateDirectories: true)
-            try Self.stopHookScript.write(
-                toFile: scriptPath, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o755], ofItemAtPath: scriptPath)
-
-            var root: [String: Any] = [:]
-            if let data = FileManager.default.contents(atPath: path), !data.isEmpty {
-                guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    confirm("~/.claude/settings.json is not valid JSON — not touching it")
-                    return
-                }
-                root = parsed
-                try data.write(to: URL(fileURLWithPath: path + ".bak-diana-voice"))
-            }
-            var hooks = root["hooks"] as? [String: Any] ?? [:]
-            var stops = hooks["Stop"] as? [[String: Any]] ?? []
-            // Drop every prior Diana Voice hook (old curl one-liner or a
-            // previous script install), then add the current one.
-            stops.removeAll { entry in
-                ((entry["hooks"] as? [[String: Any]]) ?? []).contains {
-                    let cmd = ($0["command"] as? String) ?? ""
-                    return cmd.contains("4525/tools/voice_speak") || cmd.contains("stop-hook.sh")
-                }
-            }
-            stops.append(["hooks": [["type": "command", "command": "\"\(scriptPath)\""]]])
-            hooks["Stop"] = stops
-            root["hooks"] = hooks
-            let out = try JSONSerialization.data(
-                withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
-            try FileManager.default.createDirectory(
-                atPath: (path as NSString).deletingLastPathComponent,
-                withIntermediateDirectories: true)
-            try out.write(to: URL(fileURLWithPath: path))
-            confirm("Voice hook installed — Diana will read each reply aloud (backup: settings.json.bak-diana-voice)")
-        } catch {
-            confirm("Could not install hook: \(error.localizedDescription)")
-        }
-    }
-
-    /// Remove every Diana Voice hook (any generation: the retired «Готово»
-    /// one-liner or the reply-reading script) from ~/.claude/settings.json.
-    @objc private func uninstallVoiceHook() {
-        let path = NSHomeDirectory() + "/.claude/settings.json"
-        do {
-            guard let data = FileManager.default.contents(atPath: path), !data.isEmpty,
-                  var root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  var hooks = root["hooks"] as? [String: Any],
-                  var stops = hooks["Stop"] as? [[String: Any]]
-            else {
-                confirm("No voice hook found (~/.claude/settings.json)")
-                return
-            }
-            let before = stops.count
-            stops.removeAll { entry in
-                ((entry["hooks"] as? [[String: Any]]) ?? []).contains {
-                    let cmd = ($0["command"] as? String) ?? ""
-                    return cmd.contains("4525/tools/voice_speak") || cmd.contains("stop-hook.sh")
-                }
-            }
-            guard stops.count < before else {
-                confirm("No voice hook found (~/.claude/settings.json)")
-                return
-            }
-            try data.write(to: URL(fileURLWithPath: path + ".bak-diana-voice"))
-            hooks["Stop"] = stops
-            root["hooks"] = hooks
-            let out = try JSONSerialization.data(
-                withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
-            try out.write(to: URL(fileURLWithPath: path))
-            try? FileManager.default.removeItem(atPath: dataDirPath() + "/stop-hook.sh")
-            confirm("Voice hook removed — restart your agent session")
-        } catch {
-            confirm("Could not remove hook: \(error.localizedDescription)")
-        }
-    }
 
     // MARK: - Avatar image
 
