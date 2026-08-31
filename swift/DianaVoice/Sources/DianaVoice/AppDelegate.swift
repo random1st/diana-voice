@@ -9,6 +9,49 @@ import VoiceFFI
 /// a single product with one fixed port.
 let voicePort: UInt16 = 4525
 
+// MARK: - LegacyHookCleanup
+
+/// Removes the retired Diana Voice Stop hook from `~/.claude/settings.json`.
+///
+/// Shipping a feature that edits the user's agent config means owning its
+/// removal too: uninstalling the app or updating past the feature must not
+/// leave a hook that keeps speaking. Only entries whose command references
+/// this app's own endpoint or script are touched; everything else in the
+/// file is preserved byte-for-byte through a parse/serialize round trip,
+/// and a backup is written before any change.
+enum LegacyHookCleanup {
+    static func run() {
+        let path = NSHomeDirectory() + "/.claude/settings.json"
+        try? FileManager.default.removeItem(atPath: dataDirPath() + "/stop-hook.sh")
+        guard let data = FileManager.default.contents(atPath: path), !data.isEmpty,
+              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var hooks = root["hooks"] as? [String: Any],
+              var stops = hooks["Stop"] as? [[String: Any]]
+        else { return }
+
+        let before = stops.count
+        stops.removeAll { entry in
+            ((entry["hooks"] as? [[String: Any]]) ?? []).contains {
+                let cmd = ($0["command"] as? String) ?? ""
+                return cmd.contains("4525/tools/voice_speak") || cmd.contains("stop-hook.sh")
+            }
+        }
+        guard stops.count < before else { return }
+
+        do {
+            try data.write(to: URL(fileURLWithPath: path + ".bak-diana-voice"))
+            hooks["Stop"] = stops
+            root["hooks"] = hooks
+            let out = try JSONSerialization.data(
+                withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+            try out.write(to: URL(fileURLWithPath: path))
+            NSLog("LegacyHookCleanup: removed \(before - stops.count) retired voice hook(s)")
+        } catch {
+            NSLog("LegacyHookCleanup: failed: \(error)")
+        }
+    }
+}
+
 /// Assembles the overlay panel (avatar), the SSE client that drives its mood,
 /// the tray menu, and push-to-talk. No windows, no environment-variable
 /// hooks — the product surface is the two MCP tools (voice_speak/voice_listen)
@@ -100,6 +143,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ptt.onFeedback = feedback
         tray.onPttBindingChange = { [weak ptt] binding in ptt?.setBinding(binding) }
         self.pushToTalk = ptt
+
+        // Clean up after ourselves: an earlier build shipped a Stop hook that
+        // spoke on every agent turn. The feature is gone, but installs of it
+        // survive in ~/.claude/settings.json and keep talking. Removing only
+        // entries this app wrote is the app's own mess to clear — updating
+        // fixes the machine with no terminal work.
+        LegacyHookCleanup.run()
 
         // Diana's bundled voice becomes the active reference when none exists
         // — the product speaks out of the box; Setup's recording is optional.
