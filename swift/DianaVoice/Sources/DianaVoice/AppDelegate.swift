@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Combine
 import SwiftUI
 import VoiceFFI
@@ -150,6 +151,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // entries this app wrote is the app's own mess to clear — updating
         // fixes the machine with no terminal work.
         LegacyHookCleanup.run()
+
+        // Startup fingerprint in the log: version, build paths and the four
+        // preconditions. A bug report that says only "не запускается" is
+        // undebuggable; this line makes the cause the first thing anyone
+        // reads in runtime.log.
+        let fm = FileManager.default
+        let dir = dataDirPath()
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        NSLog("""
+        DianaVoice \(version) starting — bundle=\(Bundle.main.bundlePath) \
+        model=\(fm.fileExists(atPath: dir + "/models/whisper-large-v3-turbo-Q8_0.gguf")) \
+        ref=\(fm.fileExists(atPath: dir + "/ref.wav")) \
+        mic=\(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)
+        """)
 
         // Diana's bundled voice becomes the active reference when none exists
         // — the product speaks out of the box; Setup's recording is optional.

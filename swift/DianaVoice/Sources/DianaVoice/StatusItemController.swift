@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import CoreAudio
 import UniformTypeIdentifiers
 import VoiceFFI
@@ -57,6 +58,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var pttMenuItems: [NSMenuItem] = []
     private var pttBinding: PttBinding = PttBinding.load()
     private var languageMenuItems: [NSMenuItem] = []
+    private var healthItem: NSMenuItem!
 
     /// User-visible feedback line (wired to the avatar speech bubble by
     /// AppDelegate). UNUserNotificationCenter is NOT an option here: it
@@ -101,6 +103,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         ttsLineItem = NSMenuItem(title: Self.ttsStatusLine(), action: nil, keyEquivalent: "")
         ttsLineItem.isEnabled = false
         menu.addItem(ttsLineItem)
+
+        // Self-diagnosis: "не запускается" must never be a black box. One line
+        // in the tray names the actual blocker (runtime down / mic / model /
+        // ref) with the fix; refreshHealth() repopulates it every open.
+        healthItem = NSMenuItem(title: "…", action: nil, keyEquivalent: "")
+        healthItem.isEnabled = false
+        menu.addItem(healthItem)
 
         // Device pickers switch the SYSTEM default via CoreAudio rather than
         // pinning a device inside the engines: capture rebuilds onto the
@@ -190,6 +199,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         skillItem.target = self
         menu.addItem(skillItem)
 
+        let removeAllItem = NSMenuItem(
+            title: "Remove From All Assistants",
+            action: #selector(removeFromAllAssistants),
+            keyEquivalent: ""
+        )
+        removeAllItem.target = self
+        menu.addItem(removeAllItem)
+
         menu.addItem(NSMenuItem.separator())
 
         let setupItem = NSMenuItem(
@@ -229,6 +246,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // instant it's shown.
         sttLineItem.title = Self.sttStatusLine()
         ttsLineItem.title = Self.ttsStatusLine()
+        healthItem.title = Self.healthLine()
         rebuildDeviceSubmenu(
             micMenuItem, scope: kAudioObjectPropertyScopeInput,
             defaultSelector: kAudioHardwarePropertyDefaultInputDevice,
@@ -239,6 +257,47 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             action: #selector(selectSpeaker(_:)))
         refreshPttCheckmarks()
         refreshLanguageCheckmarks()
+    }
+
+    // MARK: - Health
+
+    /// One honest line naming the first broken link in the chain, checked in
+    /// the order a failure actually blocks the user. Cheap enough to run on
+    /// every menu open: three stat()s and a port probe of our own listener.
+    private static func healthLine() -> String {
+        let dir = dataDirPath()
+        let fm = FileManager.default
+
+        if !fm.fileExists(atPath: dir + "/models/whisper-large-v3-turbo-Q8_0.gguf") {
+            return "⚠ Speech model missing — open Setup Assistant"
+        }
+        if !fm.fileExists(atPath: dir + "/ref.wav") {
+            return "⚠ No voice reference — open Setup Assistant"
+        }
+        if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
+            return "⚠ Microphone not allowed — System Settings › Privacy › Microphone"
+        }
+        if !runtimeIsUp() {
+            return "⚠ Voice runtime down — quit and reopen Diana Voice"
+        }
+        return "✓ Ready — MCP on 127.0.0.1:\(voicePort)"
+    }
+
+    /// Probe our own HTTP listener with a 300 ms budget: a menu must never
+    /// hang on a dead socket.
+    private static func runtimeIsUp() -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:\(voicePort)/mcp") else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 0.3
+        let semaphore = DispatchSemaphore(value: 0)
+        var alive = false
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            alive = (response as? HTTPURLResponse) != nil
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 0.4)
+        return alive
     }
 
     // MARK: - Recording indicator
@@ -541,6 +600,78 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
+
+    /// Undo every integration this app can create, in one click: the Claude
+    /// Code MCP entry, the Codex TOML section, the Cursor JSON entry, and the
+    /// skill copies in both conventions. Whatever isn't there is silently
+    /// skipped; the alert lists what actually changed, so an unchanged
+    /// machine says so instead of pretending.
+    @objc private func removeFromAllAssistants() {
+        let home = NSHomeDirectory()
+        let fm = FileManager.default
+        var removed: [String] = []
+
+        // Claude Code: its own CLI owns ~/.claude.json — never hand-edit it.
+        if let claude = Self.claudePath() {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: claude)
+            p.arguments = ["mcp", "remove", "diana-voice"]
+            p.standardOutput = Pipe()
+            p.standardError = Pipe()
+            if (try? p.run()) != nil {
+                p.waitUntilExit()
+                if p.terminationStatus == 0 { removed.append("Claude Code (MCP)") }
+            }
+        }
+
+        // Codex: drop the [mcp_servers.diana-voice] block up to the next
+        // top-level table header.
+        let codex = home + "/.codex/config.toml"
+        if let text = try? String(contentsOfFile: codex, encoding: .utf8),
+           text.contains("[mcp_servers.diana-voice]") {
+            var out: [String] = []
+            var skipping = false
+            for line in text.components(separatedBy: "\n") {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed == "[mcp_servers.diana-voice]" {
+                    skipping = true
+                    continue
+                }
+                if skipping {
+                    if trimmed.hasPrefix("[") { skipping = false } else { continue }
+                }
+                out.append(line)
+            }
+            if (try? out.joined(separator: "\n").write(
+                toFile: codex, atomically: true, encoding: .utf8)) != nil {
+                removed.append("Codex (config.toml)")
+            }
+        }
+
+        // Cursor: JSON merge in reverse — drop our key, keep every other server.
+        let cursor = home + "/.cursor/mcp.json"
+        if let data = fm.contents(atPath: cursor),
+           var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           var servers = root["mcpServers"] as? [String: Any],
+           servers.removeValue(forKey: "diana-voice") != nil {
+            root["mcpServers"] = servers
+            if let out = try? JSONSerialization.data(
+                withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
+               (try? out.write(to: URL(fileURLWithPath: cursor))) != nil {
+                removed.append("Cursor (mcp.json)")
+            }
+        }
+
+        for dir in [home + "/.claude/skills/diana-voice", home + "/.agents/skills/diana-voice"] {
+            if fm.fileExists(atPath: dir), (try? fm.removeItem(atPath: dir)) != nil {
+                removed.append(dir.replacingOccurrences(of: home, with: "~"))
+            }
+        }
+
+        confirm(removed.isEmpty
+            ? "Nothing to remove — no Diana Voice integrations found"
+            : "Removed:\n" + removed.joined(separator: "\n") + "\nRestart your agent sessions.")
+    }
 
     // MARK: - Avatar image
 
