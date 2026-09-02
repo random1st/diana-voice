@@ -73,7 +73,7 @@ final class SSEClient: ObservableObject {
             mood = AvatarMood.parse(data)
 
         case "speech-text":
-            let text = parseSpeech(data)
+            let text = SSEPayload.speech(data)
             if text.isEmpty {
                 // Explicit clear — cancel timer, clear immediately.
                 clearBubble()
@@ -84,8 +84,7 @@ final class SSEClient: ObservableObject {
         case "capture-start":
             // Payload: {"session_id": N}. The id ties the pushed frames to the
             // one voice_listen call draining them on the Rust side.
-            if let json = try? JSONSerialization.jsonObject(with: Data(data.utf8)) as? [String: Any],
-               let sid = json["session_id"] as? UInt64 ?? (json["session_id"] as? Int).map(UInt64.init) {
+            if let sid = SSEPayload.captureSessionId(data) {
                 NSLog("SSEClient: capture-start session \(sid)")
                 onCaptureStart?(sid)
             } else {
@@ -153,16 +152,6 @@ final class SSEClient: ObservableObject {
         speech = ""
     }
 
-    // MARK: - Decoders
-
-    /// speech-text arrives as a JSON string (`"Привет"`) — decode to the raw text.
-    private func parseSpeech(_ raw: String) -> String {
-        if let data = raw.data(using: .utf8),
-           let decoded = try? JSONDecoder().decode(String.self, from: data) {
-            return decoded
-        }
-        return raw
-    }
 }
 
 // MARK: - SSEReader (delegate-based event-stream reader)
@@ -179,7 +168,7 @@ final class SSEReader: NSObject, URLSessionDataDelegate {
 
     private var session: URLSession?
     private var task: URLSessionDataTask?
-    private var buffer = Data()
+    private var buffer = SSEBuffer()
     private var stopped = false
 
     init(
@@ -217,17 +206,10 @@ final class SSEReader: NSObject, URLSessionDataDelegate {
     // MARK: URLSessionDataDelegate
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        buffer.append(data)
-        // Events are separated by a blank line ("\n\n"). Process every complete
-        // block; keep the trailing partial in the buffer. "\n" is ASCII so byte
-        // boundaries are safe; we only UTF-8 decode whole blocks.
-        let sep = Data([0x0A, 0x0A])
-        while let range = buffer.range(of: sep) {
-            let block = buffer.subdata(in: buffer.startIndex..<range.lowerBound)
-            buffer.removeSubrange(buffer.startIndex..<range.upperBound)
-            if let text = String(data: block, encoding: .utf8) {
-                parseBlock(text)
-            }
+        // Framing lives in SSEBuffer (pure, tested); this delegate only
+        // pumps bytes into it and forwards whatever events completed.
+        for event in buffer.append(data) {
+            onEvent(event.event, event.data)
         }
     }
 
@@ -240,7 +222,7 @@ final class SSEReader: NSObject, URLSessionDataDelegate {
 
         guard !stopped else { return }
         // Stream closed (runtime restart / not up yet) — reconnect after backoff.
-        buffer.removeAll(keepingCapacity: true)
+        buffer.reset()
         let delay = backoff
         DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, !self.stopped else { return }
@@ -248,23 +230,4 @@ final class SSEReader: NSObject, URLSessionDataDelegate {
         }
     }
 
-    // MARK: Parsing
-
-    private func parseBlock(_ block: String) {
-        var event = ""
-        var dataLines: [String] = []
-        for rawLine in block.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = rawLine.hasSuffix("\r") ? String(rawLine.dropLast()) : String(rawLine)
-            if line.hasPrefix(":") { continue }  // keep-alive comment
-            if line.hasPrefix("event:") {
-                event = line.dropFirst("event:".count).trimmingCharacters(in: .whitespaces)
-            } else if line.hasPrefix("data:") {
-                dataLines.append(line.dropFirst("data:".count).trimmingCharacters(in: .whitespaces))
-            }
-        }
-        let data = dataLines.joined(separator: "\n")
-        if !event.isEmpty || !data.isEmpty {
-            onEvent(event, data)
-        }
-    }
 }
