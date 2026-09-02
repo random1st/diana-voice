@@ -477,16 +477,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func setUpCodex() {
         let path = NSHomeDirectory() + "/.codex/config.toml"
         let section = "\n[mcp_servers.diana-voice]\ncommand = \"\(Self.proxyPath())\"\n"
+        let existing = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        guard let updated = AssistantConfig.codexAdding(existing, proxyPath: Self.proxyPath()) else {
+            confirm("Codex is already configured (~/.codex/config.toml)")
+            return
+        }
         do {
-            let existing = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
-            if existing.contains("[mcp_servers.diana-voice]") {
-                confirm("Codex is already configured (~/.codex/config.toml)")
-                return
-            }
             try FileManager.default.createDirectory(
                 atPath: (path as NSString).deletingLastPathComponent,
                 withIntermediateDirectories: true)
-            try (existing + section).write(toFile: path, atomically: true, encoding: .utf8)
+            try updated.write(toFile: path, atomically: true, encoding: .utf8)
             confirm("Codex configured — restart your session")
         } catch {
             copyToClipboard(section, feedback: "Could not edit ~/.codex/config.toml — TOML copied instead")
@@ -496,23 +496,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func setUpCursor() {
         let path = NSHomeDirectory() + "/.cursor/mcp.json"
         let fallback = #"{"mcpServers": {"diana-voice": {"command": "\#(Self.proxyPath())"}}}"#
+        // Merge, never overwrite: the file usually already lists other MCP
+        // servers. Unparseable JSON yields nil -> clipboard fallback rather
+        // than clobbering the user's config.
+        guard let out = AssistantConfig.cursorAdding(
+            FileManager.default.contents(atPath: path), proxyPath: Self.proxyPath())
+        else {
+            copyToClipboard(fallback, feedback: "~/.cursor/mcp.json is not valid JSON — snippet copied instead")
+            return
+        }
         do {
-            // Merge, never overwrite: the file usually already lists other
-            // MCP servers. Unparseable existing JSON -> clipboard fallback
-            // rather than clobbering the user's config.
-            var root: [String: Any] = [:]
-            if let data = FileManager.default.contents(atPath: path), !data.isEmpty {
-                guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    copyToClipboard(fallback, feedback: "~/.cursor/mcp.json is not valid JSON — snippet copied instead")
-                    return
-                }
-                root = parsed
-            }
-            var servers = root["mcpServers"] as? [String: Any] ?? [:]
-            servers["diana-voice"] = ["command": Self.proxyPath()]
-            root["mcpServers"] = servers
-            let out = try JSONSerialization.data(
-                withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
             try FileManager.default.createDirectory(
                 atPath: (path as NSString).deletingLastPathComponent,
                 withIntermediateDirectories: true)
@@ -628,38 +621,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // top-level table header.
         let codex = home + "/.codex/config.toml"
         if let text = try? String(contentsOfFile: codex, encoding: .utf8),
-           text.contains("[mcp_servers.diana-voice]") {
-            var out: [String] = []
-            var skipping = false
-            for line in text.components(separatedBy: "\n") {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if trimmed == "[mcp_servers.diana-voice]" {
-                    skipping = true
-                    continue
-                }
-                if skipping {
-                    if trimmed.hasPrefix("[") { skipping = false } else { continue }
-                }
-                out.append(line)
-            }
-            if (try? out.joined(separator: "\n").write(
-                toFile: codex, atomically: true, encoding: .utf8)) != nil {
-                removed.append("Codex (config.toml)")
-            }
+           let out = AssistantConfig.codexRemoving(text),
+           (try? out.write(toFile: codex, atomically: true, encoding: .utf8)) != nil {
+            removed.append("Codex (config.toml)")
         }
 
         // Cursor: JSON merge in reverse — drop our key, keep every other server.
         let cursor = home + "/.cursor/mcp.json"
-        if let data = fm.contents(atPath: cursor),
-           var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           var servers = root["mcpServers"] as? [String: Any],
-           servers.removeValue(forKey: "diana-voice") != nil {
-            root["mcpServers"] = servers
-            if let out = try? JSONSerialization.data(
-                withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
-               (try? out.write(to: URL(fileURLWithPath: cursor))) != nil {
-                removed.append("Cursor (mcp.json)")
-            }
+        if let out = AssistantConfig.cursorRemoving(fm.contents(atPath: cursor)),
+           (try? out.write(to: URL(fileURLWithPath: cursor))) != nil {
+            removed.append("Cursor (mcp.json)")
         }
 
         for dir in [home + "/.claude/skills/diana-voice", home + "/.agents/skills/diana-voice"] {

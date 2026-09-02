@@ -270,6 +270,10 @@ auto_noted: false
 # CI fix (2026-08-30):
 #   crates/qwen3-tts/src/lib.rs
 #   .github/workflows/ci.yml
+# Test coverage batch (2026-09-01):
+#   swift/DianaVoice/Sources/DianaVoice/AssistantConfig.swift
+#   swift/DianaVoice/Tests/DianaVoiceTests/AssistantConfigTests.swift
+#   crates/voice-mcp-proxy/tests/proxy_session.rs
 # Repo hygiene (2026-08-30):
 #   .github/ISSUE_TEMPLATE/bug_report.md
 #   .github/ISSUE_TEMPLATE/config.yml

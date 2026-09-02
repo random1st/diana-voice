@@ -24,29 +24,14 @@ enum LegacyHookCleanup {
     static func run() {
         let path = NSHomeDirectory() + "/.claude/settings.json"
         try? FileManager.default.removeItem(atPath: dataDirPath() + "/stop-hook.sh")
-        guard let data = FileManager.default.contents(atPath: path), !data.isEmpty,
-              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var hooks = root["hooks"] as? [String: Any],
-              var stops = hooks["Stop"] as? [[String: Any]]
+        guard let data = FileManager.default.contents(atPath: path),
+              let out = AssistantConfig.settingsRemovingVoiceHooks(data)
         else { return }
-
-        let before = stops.count
-        stops.removeAll { entry in
-            ((entry["hooks"] as? [[String: Any]]) ?? []).contains {
-                let cmd = ($0["command"] as? String) ?? ""
-                return cmd.contains("4525/tools/voice_speak") || cmd.contains("stop-hook.sh")
-            }
-        }
-        guard stops.count < before else { return }
 
         do {
             try data.write(to: URL(fileURLWithPath: path + ".bak-diana-voice"))
-            hooks["Stop"] = stops
-            root["hooks"] = hooks
-            let out = try JSONSerialization.data(
-                withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
             try out.write(to: URL(fileURLWithPath: path))
-            NSLog("LegacyHookCleanup: removed \(before - stops.count) retired voice hook(s)")
+            NSLog("LegacyHookCleanup: removed retired voice hook(s) from settings.json")
         } catch {
             NSLog("LegacyHookCleanup: failed: \(error)")
         }

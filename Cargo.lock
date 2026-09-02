@@ -5042,7 +5042,7 @@ dependencies = [
 
 [[package]]
 name = "voice-engine"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -5062,7 +5062,7 @@ dependencies = [
 
 [[package]]
 name = "voice-ffi"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -5078,7 +5078,7 @@ dependencies = [
 
 [[package]]
 name = "voice-runtime"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
