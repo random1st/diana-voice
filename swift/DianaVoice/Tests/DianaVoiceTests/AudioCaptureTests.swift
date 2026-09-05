@@ -1,8 +1,112 @@
+import AVFoundation
 import XCTest
 
 @testable import DianaVoice
 
 final class AudioCaptureTests: XCTestCase {
+
+    @MainActor
+    func testDeniedOrRestrictedMicrophoneDoesNotStartEngine() {
+        for status in [AVAuthorizationStatus.denied, .restricted] {
+            var requests = 0
+            var engineStarts = 0
+            let capture = AudioCapture(
+                authorizationStatus: { status },
+                requestAccess: { _ in requests += 1 },
+                startEngine: {
+                    engineStarts += 1
+                    return .started
+                }
+            )
+
+            XCTAssertEqual(capture.start(), .permissionDenied)
+            XCTAssertFalse(capture.isRunning)
+            XCTAssertEqual(requests, 0)
+            XCTAssertEqual(engineStarts, 0)
+        }
+    }
+
+    @MainActor
+    func testPermissionGrantRequiresAnotherPressAndReportsOnMainThread() async throws {
+        var status = AVAuthorizationStatus.notDetermined
+        var completion: ((Bool) -> Void)?
+        var requests = 0
+        var engineStarts = 0
+        let capture = AudioCapture(
+            authorizationStatus: { status },
+            requestAccess: {
+                requests += 1
+                completion = $0
+            },
+            startEngine: {
+                engineStarts += 1
+                return .started
+            }
+        )
+        let permissionReported = expectation(description: "permission callback on main thread")
+        capture.onPermissionResult = { granted in
+            XCTAssertTrue(Thread.isMainThread)
+            XCTAssertTrue(granted)
+            permissionReported.fulfill()
+        }
+
+        XCTAssertEqual(capture.start(), .permissionRequested)
+        XCTAssertEqual(capture.start(), .permissionRequested)
+        XCTAssertEqual(requests, 1, "Repeated presses must not duplicate an outstanding request")
+        XCTAssertFalse(capture.isRunning)
+        let permissionCallback = try XCTUnwrap(completion)
+        status = .authorized
+        DispatchQueue.global().async { permissionCallback(true) }
+        await fulfillment(of: [permissionReported], timeout: 2)
+
+        XCTAssertFalse(capture.isRunning, "Granting permission must not orphan a new recording")
+        XCTAssertEqual(engineStarts, 0)
+        XCTAssertEqual(capture.start(), .started)
+        XCTAssertTrue(capture.isRunning)
+        XCTAssertEqual(capture.start(), .alreadyRunning)
+        XCTAssertEqual(engineStarts, 1)
+    }
+
+    @MainActor
+    func testPermissionRefusalReportsWithoutStartingEngine() async throws {
+        var completion: ((Bool) -> Void)?
+        var engineStarts = 0
+        let capture = AudioCapture(
+            authorizationStatus: { .notDetermined },
+            requestAccess: { completion = $0 },
+            startEngine: {
+                engineStarts += 1
+                return .started
+            }
+        )
+        let permissionReported = expectation(description: "permission refused")
+        capture.onPermissionResult = { granted in
+            XCTAssertTrue(Thread.isMainThread)
+            XCTAssertFalse(granted)
+            permissionReported.fulfill()
+        }
+
+        XCTAssertEqual(capture.start(), .permissionRequested)
+        try XCTUnwrap(completion)(false)
+        await fulfillment(of: [permissionReported], timeout: 2)
+
+        XCTAssertFalse(capture.isRunning)
+        XCTAssertEqual(engineStarts, 0)
+    }
+
+    @MainActor
+    func testEngineFailureIsReturnedAndCaptureRemainsStopped() {
+        let failure = CaptureStartResult.unavailable("Input device disconnected")
+        let capture = AudioCapture(
+            authorizationStatus: { .authorized },
+            requestAccess: { _ in XCTFail("An authorized microphone must not request permission") },
+            startEngine: { failure }
+        )
+
+        XCTAssertEqual(capture.start(), failure)
+        XCTAssertFalse(capture.isRunning)
+        XCTAssertTrue(capture.stopRaw().isEmpty)
+    }
 
     private func u32LE(_ d: Data, _ offset: Int) -> UInt32 {
         d.subdata(in: offset..<offset + 4).withUnsafeBytes { $0.load(as: UInt32.self) }.littleEndian

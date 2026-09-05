@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import CoreAudio
 import UniformTypeIdentifiers
 import VoiceFFI
@@ -46,7 +47,7 @@ enum SttLanguage {
 /// GUI — so this menu is deliberately small: a status line, the current
 /// default microphone, an action to copy the MCP client config snippet, and
 /// Quit.
-final class StatusItemController: NSObject, NSMenuDelegate {
+final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation {
 
     private let statusItem: NSStatusItem
 
@@ -57,6 +58,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var pttMenuItems: [NSMenuItem] = []
     private var pttBinding: PttBinding = PttBinding.load()
     private var languageMenuItems: [NSMenuItem] = []
+    private var healthItem: NSMenuItem!
+    private var dictationStatusItem: NSMenuItem!
+    private var copyDictationItem: NSMenuItem!
+    private var clearDictationItem: NSMenuItem!
 
     /// User-visible feedback line (wired to the avatar speech bubble by
     /// AppDelegate). UNUserNotificationCenter is NOT an option here: it
@@ -68,6 +73,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// Fired when the user picks a different push-to-talk binding from the
     /// tray submenu; AppDelegate wires this to `PushToTalkController.setBinding`.
     var onPttBindingChange: ((PttBinding) -> Void)?
+    var onRefreshDictation: (() -> Void)?
+    var onCopyLastDictation: (() -> Void)?
+    var onClearLastDictation: (() -> Void)?
 
     /// Opens the first-run setup window (also the way to re-record the voice
     /// reference later); AppDelegate wires this to `OnboardingController.show`.
@@ -102,6 +110,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         ttsLineItem.isEnabled = false
         menu.addItem(ttsLineItem)
 
+        // Self-diagnosis: "не запускается" must never be a black box. One line
+        // in the tray names the actual blocker (runtime down / mic / model /
+        // ref) with the fix; refreshHealth() repopulates it every open.
+        healthItem = NSMenuItem(title: "…", action: nil, keyEquivalent: "")
+        healthItem.isEnabled = false
+        menu.addItem(healthItem)
+
         // Device pickers switch the SYSTEM default via CoreAudio rather than
         // pinning a device inside the engines: capture rebuilds onto the
         // current default input on every start (AudioCapture contract), and
@@ -130,6 +145,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         refreshPttCheckmarks()
         pttItem.submenu = pttSubmenu
         menu.addItem(pttItem)
+
+        dictationStatusItem = NSMenuItem(title: "Dictation: Off", action: nil, keyEquivalent: "")
+        dictationStatusItem.isEnabled = false
+        menu.addItem(dictationStatusItem)
+        copyDictationItem = NSMenuItem(title: "Copy Last Dictation", action: #selector(copyLastDictation), keyEquivalent: "")
+        clearDictationItem = NSMenuItem(title: "Clear Last Dictation", action: #selector(clearLastDictation), keyEquivalent: "")
+        for item in [copyDictationItem!, clearDictationItem!] {
+            item.target = self
+            item.isEnabled = false
+            menu.addItem(item)
+        }
 
         let langItem = NSMenuItem(title: "STT Language", action: nil, keyEquivalent: "")
         let langSubmenu = NSMenu()
@@ -190,6 +216,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         skillItem.target = self
         menu.addItem(skillItem)
 
+        let removeAllItem = NSMenuItem(
+            title: "Remove From All Assistants",
+            action: #selector(removeFromAllAssistants),
+            keyEquivalent: ""
+        )
+        removeAllItem.target = self
+        menu.addItem(removeAllItem)
+
         menu.addItem(NSMenuItem.separator())
 
         let setupItem = NSMenuItem(
@@ -224,11 +258,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - NSMenuDelegate
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        onRefreshDictation?()
         // These lines can change between opens (device swap, engine still
         // warming up) — refresh synchronously so the menu is current the
         // instant it's shown.
         sttLineItem.title = Self.sttStatusLine()
         ttsLineItem.title = Self.ttsStatusLine()
+        healthItem.title = Self.healthLine()
         rebuildDeviceSubmenu(
             micMenuItem, scope: kAudioObjectPropertyScopeInput,
             defaultSelector: kAudioHardwarePropertyDefaultInputDevice,
@@ -239,6 +275,47 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             action: #selector(selectSpeaker(_:)))
         refreshPttCheckmarks()
         refreshLanguageCheckmarks()
+    }
+
+    // MARK: - Health
+
+    /// One honest line naming the first broken link in the chain, checked in
+    /// the order a failure actually blocks the user. Cheap enough to run on
+    /// every menu open: three stat()s and a port probe of our own listener.
+    private static func healthLine() -> String {
+        let dir = dataDirPath()
+        let fm = FileManager.default
+
+        if !fm.fileExists(atPath: dir + "/models/whisper-large-v3-turbo-Q8_0.gguf") {
+            return "⚠ Speech model missing — open Setup Assistant"
+        }
+        if !fm.fileExists(atPath: dir + "/ref.wav") {
+            return "⚠ No voice reference — open Setup Assistant"
+        }
+        if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
+            return "⚠ Microphone not allowed — System Settings › Privacy › Microphone"
+        }
+        if !runtimeIsUp() {
+            return "⚠ Voice runtime down — quit and reopen Diana Voice"
+        }
+        return "✓ Ready — MCP on 127.0.0.1:\(voicePort)"
+    }
+
+    /// Probe our own HTTP listener with a 300 ms budget: a menu must never
+    /// hang on a dead socket.
+    private static func runtimeIsUp() -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:\(voicePort)/mcp") else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 0.3
+        let semaphore = DispatchSemaphore(value: 0)
+        var alive = false
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            alive = (response as? HTTPURLResponse) != nil
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 0.4)
+        return alive
     }
 
     // MARK: - Recording indicator
@@ -400,7 +477,24 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         binding.save()
         refreshPttCheckmarks()
         onPttBindingChange?(binding)
-        onFeedback?("Push to Talk: \(binding.displayName)")
+    }
+
+    func setDictationReadiness(_ readiness: PttReadiness) {
+        dictationStatusItem.title = readiness.title
+    }
+
+    func setHasLastDictation(_ hasText: Bool) {
+        copyDictationItem.isEnabled = hasText
+        clearDictationItem.isEnabled = hasText
+    }
+
+    @objc private func copyLastDictation() { onCopyLastDictation?() }
+    @objc private func clearLastDictation() { onClearLastDictation?() }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        // NSMenu autoenables action items; retain the transcript availability
+        // instead of re-enabling Copy/Clear merely because selectors exist.
+        menuItem.isEnabled
     }
 
     private func refreshPttCheckmarks() {
@@ -418,16 +512,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func setUpCodex() {
         let path = NSHomeDirectory() + "/.codex/config.toml"
         let section = "\n[mcp_servers.diana-voice]\ncommand = \"\(Self.proxyPath())\"\n"
+        let existing = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        guard let updated = AssistantConfig.codexAdding(existing, proxyPath: Self.proxyPath()) else {
+            confirm("Codex is already configured (~/.codex/config.toml)")
+            return
+        }
         do {
-            let existing = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
-            if existing.contains("[mcp_servers.diana-voice]") {
-                confirm("Codex is already configured (~/.codex/config.toml)")
-                return
-            }
             try FileManager.default.createDirectory(
                 atPath: (path as NSString).deletingLastPathComponent,
                 withIntermediateDirectories: true)
-            try (existing + section).write(toFile: path, atomically: true, encoding: .utf8)
+            try updated.write(toFile: path, atomically: true, encoding: .utf8)
             confirm("Codex configured — restart your session")
         } catch {
             copyToClipboard(section, feedback: "Could not edit ~/.codex/config.toml — TOML copied instead")
@@ -437,23 +531,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func setUpCursor() {
         let path = NSHomeDirectory() + "/.cursor/mcp.json"
         let fallback = #"{"mcpServers": {"diana-voice": {"command": "\#(Self.proxyPath())"}}}"#
+        // Merge, never overwrite: the file usually already lists other MCP
+        // servers. Unparseable JSON yields nil -> clipboard fallback rather
+        // than clobbering the user's config.
+        guard let out = AssistantConfig.cursorAdding(
+            FileManager.default.contents(atPath: path), proxyPath: Self.proxyPath())
+        else {
+            copyToClipboard(fallback, feedback: "~/.cursor/mcp.json is not valid JSON — snippet copied instead")
+            return
+        }
         do {
-            // Merge, never overwrite: the file usually already lists other
-            // MCP servers. Unparseable existing JSON -> clipboard fallback
-            // rather than clobbering the user's config.
-            var root: [String: Any] = [:]
-            if let data = FileManager.default.contents(atPath: path), !data.isEmpty {
-                guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    copyToClipboard(fallback, feedback: "~/.cursor/mcp.json is not valid JSON — snippet copied instead")
-                    return
-                }
-                root = parsed
-            }
-            var servers = root["mcpServers"] as? [String: Any] ?? [:]
-            servers["diana-voice"] = ["command": Self.proxyPath()]
-            root["mcpServers"] = servers
-            let out = try JSONSerialization.data(
-                withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
             try FileManager.default.createDirectory(
                 atPath: (path as NSString).deletingLastPathComponent,
                 withIntermediateDirectories: true)
@@ -541,6 +628,56 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
+
+    /// Undo every integration this app can create, in one click: the Claude
+    /// Code MCP entry, the Codex TOML section, the Cursor JSON entry, and the
+    /// skill copies in both conventions. Whatever isn't there is silently
+    /// skipped; the alert lists what actually changed, so an unchanged
+    /// machine says so instead of pretending.
+    @objc private func removeFromAllAssistants() {
+        let home = NSHomeDirectory()
+        let fm = FileManager.default
+        var removed: [String] = []
+
+        // Claude Code: its own CLI owns ~/.claude.json — never hand-edit it.
+        if let claude = Self.claudePath() {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: claude)
+            p.arguments = ["mcp", "remove", "diana-voice"]
+            p.standardOutput = Pipe()
+            p.standardError = Pipe()
+            if (try? p.run()) != nil {
+                p.waitUntilExit()
+                if p.terminationStatus == 0 { removed.append("Claude Code (MCP)") }
+            }
+        }
+
+        // Codex: drop the [mcp_servers.diana-voice] block up to the next
+        // top-level table header.
+        let codex = home + "/.codex/config.toml"
+        if let text = try? String(contentsOfFile: codex, encoding: .utf8),
+           let out = AssistantConfig.codexRemoving(text),
+           (try? out.write(toFile: codex, atomically: true, encoding: .utf8)) != nil {
+            removed.append("Codex (config.toml)")
+        }
+
+        // Cursor: JSON merge in reverse — drop our key, keep every other server.
+        let cursor = home + "/.cursor/mcp.json"
+        if let out = AssistantConfig.cursorRemoving(fm.contents(atPath: cursor)),
+           (try? out.write(to: URL(fileURLWithPath: cursor))) != nil {
+            removed.append("Cursor (mcp.json)")
+        }
+
+        for dir in [home + "/.claude/skills/diana-voice", home + "/.agents/skills/diana-voice"] {
+            if fm.fileExists(atPath: dir), (try? fm.removeItem(atPath: dir)) != nil {
+                removed.append(dir.replacingOccurrences(of: home, with: "~"))
+            }
+        }
+
+        confirm(removed.isEmpty
+            ? "Nothing to remove — no Diana Voice integrations found"
+            : "Removed:\n" + removed.joined(separator: "\n") + "\nRestart your agent sessions.")
+    }
 
     // MARK: - Avatar image
 

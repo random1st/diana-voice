@@ -154,6 +154,27 @@ the tray menu. Push-to-talk requires the **Accessibility** permission
 to monitor the Fn key globally and to paste the transcribed text into the
 frontmost app.
 
+Each dictation remembers the app where recording began. Text is pasted only
+while that app is active; switching to another app leaves the result available
+under **Copy Last Dictation** in the tray, with a short reminder. Diana Voice
+does not move focus. Within the same app, the currently focused field receives
+the text.
+
+The last nonempty transcript is kept in memory until you choose **Clear Last
+Dictation** or quit. It is also available when automatic paste is blocked;
+failed or empty recognition does not erase the previous result. No dictation
+history is written to disk or shown in the avatar bubble.
+
+Automatic paste preserves the clipboard's original formats and respects any
+new content you copy during insertion. If the original clipboard cannot be
+fully saved, use **Copy Last Dictation** to copy the text explicitly instead.
+Rapid successive dictations are delivered in recording order.
+
+The tray shows whether the dictation shortcut is registered. After granting
+Accessibility access, return to your app or reopen the tray menu to enable
+Hold Fn without restarting. After granting microphone access, press the key
+again to begin recording.
+
 ## First run
 
 On first launch the app walks you through:

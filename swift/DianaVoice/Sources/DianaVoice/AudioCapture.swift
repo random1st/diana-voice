@@ -1,6 +1,14 @@
 import AVFoundation
 import CoreAudio
 
+enum CaptureStartResult: Equatable {
+    case started
+    case alreadyRunning
+    case permissionRequested
+    case permissionDenied
+    case unavailable(String)
+}
+
 /// Native mic capture via AVAudioEngine.
 ///
 /// Replaces the Rust cpal capture, which grabbed a ghost/disconnected device
@@ -26,8 +34,30 @@ final class AudioCapture: @unchecked Sendable {
     private let lock = NSLock()
     private var samples: [Float] = []
     private var running = false
+    private var permissionRequestPending = false
+    private let authorizationStatus: () -> AVAuthorizationStatus
+    private let requestAccess: (@escaping (Bool) -> Void) -> Void
+    private let startEngineOverride: (() -> CaptureStartResult)?
 
-    private init() {
+    /// Engine control and this state are read on the main thread.
+    var isRunning: Bool { running }
+
+    /// Delivered on the main thread. A permission response never starts capture;
+    /// the user must press the hotkey again after granting access.
+    var onPermissionResult: ((Bool) -> Void)?
+
+    init(
+        authorizationStatus: @escaping () -> AVAuthorizationStatus = {
+            AVCaptureDevice.authorizationStatus(for: .audio)
+        },
+        requestAccess: @escaping (@escaping (Bool) -> Void) -> Void = {
+            AVCaptureDevice.requestAccess(for: .audio, completionHandler: $0)
+        },
+        startEngine: (() -> CaptureStartResult)? = nil
+    ) {
+        self.authorizationStatus = authorizationStatus
+        self.requestAccess = requestAccess
+        self.startEngineOverride = startEngine
         // Device (dis)connect mid-capture kills the engine's IO the same way.
         // Rebuild around the new default input and keep capturing — the
         // accumulated samples survive, the press isn't lost.
@@ -83,25 +113,41 @@ final class AudioCapture: @unchecked Sendable {
     /// Mic authorization must be requested/awaited before starting the engine —
     /// without it AVAudioEngine's input tap delivers all-zero (silent) buffers on
     /// macOS even when the bundle is otherwise allowed (Apple Developer Forums).
-    func start() {
-        guard !running else { return }
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+    @discardableResult
+    func start() -> CaptureStartResult {
+        guard !running else { return .alreadyRunning }
+        switch authorizationStatus() {
         case .authorized:
-            beginEngine()
+            return beginEngine()
         case .notDetermined:
             // Only prompt — do NOT auto-start capture in the callback. The press
             // is already over by the time the user answers; starting then would
             // orphan a capture with no matching stop. User presses again once granted.
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
+            guard !permissionRequestPending else { return .permissionRequested }
+            permissionRequestPending = true
+            requestAccess { [weak self] granted in
                 NSLog("AudioCapture: mic access \(granted ? "granted — press again" : "denied")")
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.permissionRequestPending = false
+                    self.onPermissionResult?(granted)
+                }
             }
+            return .permissionRequested
         default:
             NSLog("AudioCapture: microphone not authorized")
+            return .permissionDenied
         }
     }
 
-    private func beginEngine(preserveSamples: Bool = false) {
-        guard !running else { return }
+    @discardableResult
+    private func beginEngine(preserveSamples: Bool = false) -> CaptureStartResult {
+        guard !running else { return .alreadyRunning }
+        if let startEngineOverride {
+            let result = startEngineOverride()
+            running = result == .started || result == .alreadyRunning
+            return result
+        }
         engine = AVAudioEngine()
         if !preserveSamples {
             lock.lock()
@@ -118,13 +164,13 @@ final class AudioCapture: @unchecked Sendable {
         // the main thread, which kills the whole app: the Carbon hotkey callback
         // runs on the main run loop, so PTT, avatar and menu all freeze.
         let inFormat = input.inputFormat(forBus: 0)
-        guard inFormat.sampleRate > 0 else {
+        guard inFormat.sampleRate > 0, inFormat.channelCount > 0 else {
             NSLog("AudioCapture: no input device")
-            return
+            return .unavailable("No microphone is available. Check the input device.")
         }
         guard let converter = AVAudioConverter(from: inFormat, to: outFormat) else {
             NSLog("AudioCapture: cannot build converter")
-            return
+            return .unavailable("Could not prepare audio from the microphone.")
         }
         // Capture the converter in the tap closure (not via shared mutable state)
         // so the render thread never races a main-thread write to it.
@@ -137,9 +183,12 @@ final class AudioCapture: @unchecked Sendable {
         do {
             try engine.start()
             running = true
+            return .started
         } catch {
             NSLog("AudioCapture: engine.start failed: \(error)")
             input.removeTap(onBus: 0)
+            engine.stop()
+            return .unavailable("Could not start the microphone: \(error.localizedDescription)")
         }
     }
 

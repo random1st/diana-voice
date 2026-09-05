@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Combine
 import SwiftUI
 import VoiceFFI
@@ -23,29 +24,14 @@ enum LegacyHookCleanup {
     static func run() {
         let path = NSHomeDirectory() + "/.claude/settings.json"
         try? FileManager.default.removeItem(atPath: dataDirPath() + "/stop-hook.sh")
-        guard let data = FileManager.default.contents(atPath: path), !data.isEmpty,
-              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var hooks = root["hooks"] as? [String: Any],
-              var stops = hooks["Stop"] as? [[String: Any]]
+        guard let data = FileManager.default.contents(atPath: path),
+              let out = AssistantConfig.settingsRemovingVoiceHooks(data)
         else { return }
-
-        let before = stops.count
-        stops.removeAll { entry in
-            ((entry["hooks"] as? [[String: Any]]) ?? []).contains {
-                let cmd = ($0["command"] as? String) ?? ""
-                return cmd.contains("4525/tools/voice_speak") || cmd.contains("stop-hook.sh")
-            }
-        }
-        guard stops.count < before else { return }
 
         do {
             try data.write(to: URL(fileURLWithPath: path + ".bak-diana-voice"))
-            hooks["Stop"] = stops
-            root["hooks"] = hooks
-            let out = try JSONSerialization.data(
-                withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
             try out.write(to: URL(fileURLWithPath: path))
-            NSLog("LegacyHookCleanup: removed \(before - stops.count) retired voice hook(s)")
+            NSLog("LegacyHookCleanup: removed retired voice hook(s) from settings.json")
         } catch {
             NSLog("LegacyHookCleanup: failed: \(error)")
         }
@@ -141,8 +127,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // "Off". See PushToTalk.swift for the coordinator/monitor mechanics.
         let ptt = PushToTalkController(client: client)
         ptt.onFeedback = feedback
+        ptt.onReadinessChange = { [weak tray] in tray?.setDictationReadiness($0) }
         tray.onPttBindingChange = { [weak ptt] binding in ptt?.setBinding(binding) }
+        tray.onRefreshDictation = { [weak ptt] in ptt?.refreshReadiness() }
+        tray.onCopyLastDictation = { [weak ptt] in ptt?.coordinator.copyLastDictation() }
+        tray.onClearLastDictation = { [weak ptt] in ptt?.coordinator.lastDictation.clear() }
+        ptt.coordinator.lastDictation.onChange = { [weak tray] in tray?.setHasLastDictation($0) }
         self.pushToTalk = ptt
+        ptt.activate()
 
         // Clean up after ourselves: an earlier build shipped a Stop hook that
         // spoke on every agent turn. The feature is gone, but installs of it
@@ -150,6 +142,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // entries this app wrote is the app's own mess to clear — updating
         // fixes the machine with no terminal work.
         LegacyHookCleanup.run()
+
+        // Startup fingerprint in the log: version, build paths and the four
+        // preconditions. A bug report that says only "не запускается" is
+        // undebuggable; this line makes the cause the first thing anyone
+        // reads in runtime.log.
+        let fm = FileManager.default
+        let dir = dataDirPath()
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        NSLog("""
+        DianaVoice \(version) starting — bundle=\(Bundle.main.bundlePath) \
+        model=\(fm.fileExists(atPath: dir + "/models/whisper-large-v3-turbo-Q8_0.gguf")) \
+        ref=\(fm.fileExists(atPath: dir + "/ref.wav")) \
+        mic=\(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)
+        """)
 
         // Diana's bundled voice becomes the active reference when none exists
         // — the product speaks out of the box; Setup's recording is optional.

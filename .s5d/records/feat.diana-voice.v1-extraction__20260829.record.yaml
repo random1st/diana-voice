@@ -1,6 +1,6 @@
-revision: 20
+revision: 36
 spec_ref: feat.diana-voice.v1-extraction__20260829.s5d.yaml
-spec_sha256: sha256:e692c8020cca8aa787f10276a77cac68ade958c4c31f6625916eefc66eb177ca
+spec_sha256: sha256:aec1f5e28e8f166dc9f8fdf3fb0e04566969591e2e8cdc8355e4e7b8a87c11eb
 status: approved
 sync_status: unknown
 status_history:
@@ -44,6 +44,38 @@ status_history:
   timestamp: 2026-08-29T10:18:26.211249+00:00
 - status: approved
   timestamp: 2026-08-29T10:18:26.240764+00:00
+- status: previewed
+  timestamp: 2026-08-30T05:05:22.666944+00:00
+- status: approved
+  timestamp: 2026-08-30T05:05:22.693409+00:00
+- status: previewed
+  timestamp: 2026-08-30T05:17:41.521748+00:00
+- status: approved
+  timestamp: 2026-08-30T05:17:41.548827+00:00
+- status: previewed
+  timestamp: 2026-08-30T06:48:53.139070+00:00
+- status: approved
+  timestamp: 2026-08-30T06:48:53.207968+00:00
+- status: previewed
+  timestamp: 2026-08-30T06:50:14.945846+00:00
+- status: approved
+  timestamp: 2026-08-30T06:50:14.999604+00:00
+- status: previewed
+  timestamp: 2026-08-30T10:37:19.970249+00:00
+- status: approved
+  timestamp: 2026-08-30T10:37:19.994396+00:00
+- status: previewed
+  timestamp: 2026-08-30T11:52:01.480072+00:00
+- status: approved
+  timestamp: 2026-08-30T11:52:01.508831+00:00
+- status: previewed
+  timestamp: 2026-09-02T05:01:41.941402+00:00
+- status: approved
+  timestamp: 2026-09-02T05:01:41.972353+00:00
+- status: previewed
+  timestamp: 2026-09-02T05:06:31.650862+00:00
+- status: approved
+  timestamp: 2026-09-02T05:06:31.674738+00:00
 active_phase: null
 phase_history: []
 phase_runs: []
@@ -84,9 +116,41 @@ approvals:
   date: 2026-08-29T10:18:26.240762+00:00
   spec_sha256: sha256:e692c8020cca8aa787f10276a77cac68ade958c4c31f6625916eefc66eb177ca
   diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-30T05:05:22.693406+00:00
+  spec_sha256: sha256:a545da763e61d3a027722b76ba32869c94dbbae1fe63fcfc63d7c61ee5116b13
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-30T05:17:41.548826+00:00
+  spec_sha256: sha256:d384827a2ea67ab69d3eca12fd8d3424d14ba6fcfd59ca094664455feeb04a46
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-30T06:48:53.207966+00:00
+  spec_sha256: sha256:3503e3e521c652feb891052bd638577f16ae0a73954fd93af04ef06878a1f8dd
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-30T06:50:14.999601+00:00
+  spec_sha256: sha256:619679b2e6b43d54e3a5850c98c327fc5e414149f1e02b20e394680066964db1
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-30T10:37:19.994394+00:00
+  spec_sha256: sha256:3acdc36c085baa9670c7cf83810a8c9e176c0bff2a73eeb06bcb7ad2d5aec42e
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-08-30T11:52:01.508828+00:00
+  spec_sha256: sha256:13f461644ea98f8e87e4bf72fa2181f7378739738cda75a4ec4b2f7506c228b3
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-09-02T05:01:41.972351+00:00
+  spec_sha256: sha256:3379c13e0fcc9fec6205712788ed81d74b29e5ade98e917956efabf9e80ec00e
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
+- reviewer: Roman Voronin
+  date: 2026-09-02T05:06:31.674736+00:00
+  spec_sha256: sha256:aec1f5e28e8f166dc9f8fdf3fb0e04566969591e2e8cdc8355e4e7b8a87c11eb
+  diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
 preview:
   diff_sha256: sha256:1aaebbd90cd47016dcdbea96f2664e8b5262eca0611dad31cca9271f8cb0816b
-  previewed_spec_sha256: sha256:e692c8020cca8aa787f10276a77cac68ade958c4c31f6625916eefc66eb177ca
+  previewed_spec_sha256: sha256:aec1f5e28e8f166dc9f8fdf3fb0e04566969591e2e8cdc8355e4e7b8a87c11eb
   actions:
     create: 7
     link: 3

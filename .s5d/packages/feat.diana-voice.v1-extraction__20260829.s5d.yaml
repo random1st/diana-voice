@@ -123,6 +123,17 @@ artifacts:
     paths:
     - crates/
     - vendor/
+    - swift/
+    - skills/
+    - scripts/
+    - Casks/
+    - .github/
+    - README.md
+    - THIRD-PARTY-NOTICES.md
+    - Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - .gitignore
     product_criticality: null
     owner: null
   roles: []
@@ -248,3 +259,24 @@ auto_noted: false
 #   Casks/diana-voice.rb
 #   swift/DianaVoice/Sources/DianaVoice/Onboarding.swift
 #   swift/DianaVoice/packaging/icon.icns
+# Diana-parity batch (2026-08-30):
+#   crates/voice-runtime/src/mcp/tools/voice_transcribe.rs
+#   crates/voice-runtime/src/mcp/tools/ui_bubble_show.rs
+#   swift/DianaVoice/Sources/DianaVoice/Resources/diana-ref.wav
+#   swift/DianaVoice/Sources/DianaVoice/Resources/diana-ref.txt
+# No-MCP channel (skill + hook):
+#   skills/claude/diana-voice/SKILL.md
+#   swift/DianaVoice/Sources/DianaVoice/Resources/diana-voice-skill.md
+# CI fix (2026-08-30):
+#   crates/qwen3-tts/src/lib.rs
+#   .github/workflows/ci.yml
+# Test coverage batch (2026-09-01):
+#   swift/DianaVoice/Sources/DianaVoice/AssistantConfig.swift
+#   swift/DianaVoice/Tests/DianaVoiceTests/AssistantConfigTests.swift
+#   crates/voice-mcp-proxy/tests/proxy_session.rs
+# Avatar UI coverage (2026-09-01):
+#   swift/DianaVoice/Sources/DianaVoice/SSEParsing.swift
+#   swift/DianaVoice/Tests/DianaVoiceTests/AvatarUITests.swift
+# Repo hygiene (2026-08-30):
+#   .github/ISSUE_TEMPLATE/bug_report.md
+#   .github/ISSUE_TEMPLATE/config.yml
