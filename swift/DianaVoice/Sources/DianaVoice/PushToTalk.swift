@@ -93,7 +93,7 @@ final class PushToTalkController {
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.refreshReadiness() }
+            Task { @MainActor [weak self] in self?.refreshReadiness() }
         }
         registration.refresh(prompt: true)
         onReadinessChange?(readiness)
