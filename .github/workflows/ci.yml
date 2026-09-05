@@ -53,6 +53,9 @@ jobs:
         run: cargo clippy --workspace -- -D warnings
 
   swift:
+    # Build and test locally via scripts/package-app.sh and swift test.
+    # macOS Swift runners are paid; use GitHub only on an explicit manual run.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-14 # arm64
     steps:
       - uses: actions/checkout@v4
